@@ -1,0 +1,245 @@
+/* General reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 50vh;
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+    padding-top: 5vh;
+}
+
+
+.classroom {
+    display: grid;
+    grid-template-areas:
+        "top-row top-row"
+        "left-section right-section";
+    gap: 5vw;
+    align-items: start;
+    width: 90vw; /* Container width relative to viewport */
+    /*max-width: 1200; /* Optional: max width for larger screens */
+    max-width: 50vw;
+}
+
+/* Left and right section styling */
+.left-section, .right-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2vw;
+    margin-top: 0;
+}
+
+.subrow {
+    display: flex;
+    gap: 5px;
+}
+
+.row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.table {
+    
+    flex: 1 1 calc(12% - 0.5vw); /* Scales to fit within row */
+    aspect-ratio: 1.5 / 1; /* Maintain rectangle shape */
+    background-color: #4caf50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background-color 0.3s;
+}
+
+.table:hover {
+    background-color: #357a38;
+}
+
+.left-section .row,
+.right-section .row {
+    justify-content: flex-start;
+}
+
+/* Top row styling */
+.request-help {
+    grid-area: top-row;
+    display: flex;
+    flex-direction: column; /* Stack items vertically */
+    align-items: center; /* Center items horizontally */
+    gap: 0.2vw; /* Space between elements */
+    justify-content: center;
+    margin-bottom: 1vh;
+}
+
+
+.request-help input[type="text"] {
+    padding: 10px 15px;
+    border: 2px solid #4caf50;
+    border-radius: 5px;
+    font-size: 1rem;
+    outline: none;
+    width: 350px; /* Adjust width as needed */
+    transition: border-color 0.3s;
+}
+
+.request-help input[type="text"]:focus {
+    border-color: #357a38;
+}
+
+.request-help button {
+    padding: 10px 20px;
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.request-help button:hover {
+    background-color: #357a38;
+}
+
+.request-help button:active {
+    transform: scale(0.98);
+}
+
+
+.queue-info {
+    margin-top: 10px; /* Space above the placeholder text */
+    font-size: 0.9rem; /* Slightly smaller font size */
+    text-align: center; /* Center the text within the request-help section */
+}
+
+.input-group {
+    display: flex;
+    gap: 10px; /* Space between input and button */
+    justify-content: center;
+    align-items: center;
+    width: 100%; /* Ensure it takes full width */
+}
+
+.input-group {
+    display: flex;
+    gap: 10px; /* Space between input and button */
+    justify-content: center;
+    align-items: center;
+    width: 100%; /* Ensure it takes full width */
+}
+
+.split {
+    display: flex;
+    width: 90%;
+    height: 100vh;
+}
+
+.left-main-section {
+    flex: 1;
+    padding: 20px;
+}
+
+.right-main-section {
+    flex: 1;
+    padding: 20px;
+    margin-left: 20px; /* Additional space from the left */
+}
+
+/* Queue table styling */
+.queue {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    font-size: 1rem;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin-top: 20px;
+}
+
+.queue th, .queue td {
+    padding: 12px;
+    text-align: center;
+}
+
+.queue th {
+    background-color: #4caf50;
+    color: white;
+    font-weight: bold;
+}
+
+.queue td {
+    background-color: #f9f9f9;
+}
+
+/* Alternating row colors for readability */
+.queue tr:nth-child(even) td {
+    background-color: #e6f7e6;
+}
+
+/* Hover effect on rows */
+.queue tr:hover td {
+    background-color: #d3f0d3;
+}
+
+/* Button styling inside the table */
+.queue button {
+    padding: 8px 12px;
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.queue button:hover {
+    background-color: #357a38;
+}
+
+/* Responsive table adjustments */
+@media (max-width: 768px) {
+    .queue th, .queue td {
+        padding: 8px;
+    }
+
+    .queue {
+        font-size: 0.9rem;
+    }
+}
+
+.chosen-table {
+    background-color: #1a3d1c;
+}
+
+.helping {
+    background-color: #131e83;
+}
+
+.highlight-blue td {
+    background-color: #1b2792 !important; /* Light blue color */
+    color: white; /* Change text color to white for better contrast */
+}
+
+
+.first {
+    background-color: #e70000;
+}
+
+.in-queue {
+    background-color: #fffb00;
+    color: black;
+}
+
+.warning {
+    color: #b30000;
+}
