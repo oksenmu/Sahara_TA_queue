@@ -353,11 +353,14 @@ class MyServer(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":        
+    if not os.path.exists("stats"):
+        os.mkdir("stats")
     webServer = HTTPServer((hostName, serverPort), MyServer)
     print("Server started http://%s:%s" % (hostName, serverPort))
     if "TA_TOKEN" not in os.environ or os.environ["TA_TOKEN"] == "PLACEHOLDER":
         print("Please configure a secure TA_TOKEN in the .env file")
-        print(f"Sugested token = {b64encode(secrets.token_bytes(32)).decode()}")
+        print(f"Sugested token:")
+        print(f"TA_TOKEN={b64encode(secrets.token_bytes(32)).decode()}")
         sys.exit()
 
     try:
