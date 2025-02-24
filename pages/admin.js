@@ -4,7 +4,7 @@ function removeUser(id) {
         headers: {'Content-Type': 'text/plain'}, 
         body: id }).then(res => res.json()
     ).then(data=>{
-        //updateQueue()
+        updateQueue()
         if (data["error"] != ""){
             console.log(data["error"])
         }
@@ -19,7 +19,7 @@ function helpUser(id) {
     }).then(res => 
         res.json()
     ).then(data=>{
-        //updateQueue()
+       /updateQueue()
         if (data["error"] != ""){
             console.log(data["error"])
         }
@@ -266,9 +266,4 @@ socket.onmessage = function (event) {
     }
 }
 
-//setInterval(() => {
-//    updateQueue()
-//}, 1000);
-
-//updateQueue()
 updateName()
