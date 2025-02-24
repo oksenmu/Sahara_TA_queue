@@ -70,8 +70,25 @@ function updatePosition() {
     });
 }
 
-setInterval(() => {
-    updatePosition()
-}, 3000);
+const socket = new WebSocket('ws://'+ window.location.hostname + ':27890');
 
-updatePosition()
+socket.onmessage = function (event) {
+    const data = JSON.parse(event.data);
+    if (data["error"] == "" && data["data"]["status"]=="In queue"){
+        document.getElementById("queue-info").innerText = `You are number ${data["data"]["index"]} in the queue`;
+        document.getElementById("title").innerText = `TA queue q=${data["data"]["index"]}`
+    }
+    else if(data["error"] == "" && data["data"]["status"]=="Getting help"){
+        document.getElementById("queue-info").innerText = `You are now getting help from ${data["data"]["helped_by"]}`;
+        document.getElementById("title").innerText = `TA queue q=0`
+    }
+    else{
+        document.getElementById("queue-info").innerText = ""
+        document.getElementById("title").innerText = `TA queue`
+    }
+}
+
+socket.onopen = function () {
+    // Send a message to the WebSocket server
+    socket.send(document.cookie);
+};

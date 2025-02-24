@@ -1,17 +1,119 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from concurrent.futures import ThreadPoolExecutor
+from websockets.sync.server import serve
 from http.cookies import SimpleCookie
 from base64 import b64encode
+from threading import Lock
+import secrets
+import time
 import json
 import os
 import sys
-import secrets
 
-#hostName = "10.24.12.221" 
-hostName = "localhost"
-serverPort = 8080
+hostName = "10.24.14.191" 
+#hostName = "localhost"
+serverPort = 27889
+index_websocket_port = 27890
+queue_websocket_port = 27891
+queue_mutex = Lock()
 
 users = []
+tas = []
 queue = []
+
+class Student():
+
+    def __init__(self, id):
+        self.id = id
+        self.ta = False
+        self.ta_uppdated = False
+        self.table_id = None
+        self.task = None
+        self.helped_by = None
+        self.user_name = None
+
+def index(user):
+    if user.helped_by is not None:
+        return 0, json.dumps({
+            "error" : "",
+            "data" : {"status": "Getting help", "index" : 0, "helped_by" : user.helped_by}
+        })
+    if user not in queue:
+        return -1, json.dumps({
+            "error" : "",
+            "data" : {"status": "Not in queue", "index" : -1, "helped_by" : None}
+        })
+    queue_real = [u for u in queue if u.helped_by is None]
+    return queue_real.index(user)+1, json.dumps({
+        "error" : "",
+        "data" : {"status": "In queue", "index" : queue_real.index(user)+1, "helped_by" : None}
+    })
+
+def ws_index(websocket):
+    user = None
+    old_index = None
+    for message in websocket:
+        user = get_user(message)
+        break
+    if user == None:
+        websocket.send(json.dumps({"error" : "Missing cookie", "data" : ""}))
+        return
+    old_helped_by = user.helped_by
+    while True:
+        new_index, message = index(user)
+        if new_index == old_index and old_helped_by == user.helped_by:
+            time.sleep(10)
+            continue
+        old_index = new_index
+        websocket.send(message)
+
+def ws_queue(websocket):
+    global uppdated
+    user = None
+    for message in websocket:
+        user = get_user(message)
+        break
+    if user == None:
+        websocket.send(json.dumps({"error" : "Missing cookie", "data" : ""}))
+        return
+    if not user.ta:
+        websocket.send(json.dumps({"error" : "User is not TA", "data" : ""}))
+        return
+    websocket.send(json.dumps({
+        "error" : "",
+        "data" : [
+            {"table_id" : u.table_id, "task" : u.task, "helped_by" : u.helped_by , "id" : u.id }
+            for u 
+            in queue
+        ]
+    }))
+    while True:
+        time.sleep(1)
+        with queue_mutex:
+            if not user.ta_uppdated:
+                continue
+            websocket.send(json.dumps({
+                "error" : "",
+                "data" : [
+                    {"table_id" : u.table_id, "task" : u.task, "helped_by" : u.helped_by , "id" : u.id }
+                    for u 
+                    in queue
+                ]
+            }))
+            user.ta_uppdated = False
+
+
+def get_user(cookie):
+    cookie = SimpleCookie(cookie)
+    if cookie.get("id") == None:
+        return None
+    id = cookie.get("id").value
+    user = None
+    for u in users:
+        if u.id == id:
+            user = u
+            break
+    return user
 
 def add_user():
     print("Adding user")
@@ -19,20 +121,10 @@ def add_user():
     cookie = SimpleCookie()
     cookie["id"] = id  # Cookie name and value
     cookie["id"]["path"] = "/"  # Path where the cookie is accessible
-    cookie["id"]["httponly"] = True
+    cookie["id"]["httponly"] = False
     cookie["id"]["SameSite"] = "Strict"
     users.append(Student(id))
     return cookie
-
-class Student():
-
-    def __init__(self, id):
-        self.id = id
-        self.ta = False
-        self.table_id = None
-        self.task = None
-        self.helped_by = None
-        self.user_name = None
 
 
 class MyServer(BaseHTTPRequestHandler):
@@ -87,23 +179,13 @@ class MyServer(BaseHTTPRequestHandler):
             self.serve_html("./pages/admin.html")
 
     def get_user(self):
-        cookie = SimpleCookie(self.headers["Cookie"])
-        if cookie.get("id") == None:
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(json.dumps({"error" : "Missing cookie", "data" : ""}).encode())
-            return
-        id = cookie.get("id").value
-        user = None
-        for u in users:
-            if u.id == id:
-                user = u
-                break
+        user = get_user(self.headers["Cookie"])
         if user == None:
             self.send_response(400)
             self.end_headers()
             self.wfile.write(json.dumps({"error" : "Missing cookie", "data" : ""}).encode())
             return
+        
         return user
 
     def get_queue(self):
@@ -121,6 +203,7 @@ class MyServer(BaseHTTPRequestHandler):
     
     def promote_student(self):
         user = self.get_user()
+        print(user)
         if user is None:
             return
         try:
@@ -132,6 +215,7 @@ class MyServer(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error" : "Cannot validate token", "data" : ""}).encode())
                 return
             user.ta = True
+            tas.append(user)
             user.name = "Teaching Assistant"
             self.send_response(200)
             self.send_header("Content-type", "application/json")
@@ -164,7 +248,10 @@ class MyServer(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"error" : "Invalid JSON", "data" : ""}).encode())
             return
-        queue.append(user)
+        with queue_mutex:
+            queue.append(user)
+            for ta in tas:
+                ta.ta_uppdated = True
         self.send_response(200)
         self.send_header("Content-type", "application/json")
         self.end_headers()
@@ -253,7 +340,10 @@ class MyServer(BaseHTTPRequestHandler):
             return
         student.helped_by = None
         student.task = None
-        queue.remove(student)
+        with queue_mutex:
+            queue.remove(student)
+            for ta in tas:
+                ta.ta_uppdated = True
         self.send_response(200)
         self.send_header("Content-type", "application/json")
         self.end_headers()
@@ -294,8 +384,11 @@ class MyServer(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"error" : "Person is not in queue", "data" : ""}).encode())
             return
-        student.helped_by = user.name
-        self.increase_stats(user.name)
+        with queue_mutex:
+            student.helped_by = user.name
+            self.increase_stats(user.name)
+            for ta in tas:
+                ta.ta_uppdated = True
         self.send_response(200)
         self.send_header("Content-type", "application/json")
         self.end_headers()
@@ -351,18 +444,27 @@ class MyServer(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error" : "Invalid endpoint", "data" : ""}).encode())
                 return
 
+def serve_forever(server):
+    server.serve_forever()
 
 if __name__ == "__main__":        
+    servers = []
     if not os.path.exists("stats"):
         os.mkdir("stats")
     webServer = HTTPServer((hostName, serverPort), MyServer)
+    servers.append(webServer)
     print("Server started http://%s:%s" % (hostName, serverPort))
     if "TA_TOKEN" not in os.environ or os.environ["TA_TOKEN"] == "PLACEHOLDER":
         print("Please configure a secure TA_TOKEN in the .env file")
         print(f"Sugested token:")
         print(f"TA_TOKEN={b64encode(secrets.token_bytes(32)).decode()}")
         sys.exit()
-
+    index_ws_server = serve(ws_index, hostName, index_websocket_port)
+    queue_ws_server = serve(ws_queue, hostName, queue_websocket_port)
+    servers.append(index_ws_server)
+    servers.append(queue_ws_server)
+    with ThreadPoolExecutor(max_workers=len(servers)) as executor:
+        executor.map(serve_forever, servers)
     try:
         webServer.serve_forever()
     except KeyboardInterrupt:
