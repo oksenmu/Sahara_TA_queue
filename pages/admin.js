@@ -19,7 +19,7 @@ function helpUser(id) {
     }).then(res => 
         res.json()
     ).then(data=>{
-       /updateQueue()
+       updateQueue()
         if (data["error"] != ""){
             console.log(data["error"])
         }
