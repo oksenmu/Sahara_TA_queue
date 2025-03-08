@@ -145,7 +145,7 @@ document.getElementById('name').addEventListener('keypress', (event) => {
 });
 
 function sendUpdateName(){
-    fetch("/update_name", {
+    fetch("/api/name", {
         method: "POST",
         headers: {'Content-Type': 'text/plain'}, 
         body: document.getElementById("name").value
@@ -159,14 +159,14 @@ function sendUpdateName(){
             }, 7000);
         }
         else{
-            updateName()
+            document.getElementById("name-info").innerText = document.getElementById("name").value
         }
     });
 
 }
 
 function updateName() {
-    fetch("/api/my_name", {
+    fetch("/api/name", {
         method: "GET",
         headers: {'Content-Type': 'text/plain'}, 
     }).then(res => 

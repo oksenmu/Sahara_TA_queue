@@ -1,13 +1,43 @@
-var chosen = "?"
+var chosen = 0
+
+function fetchTableNumber() {
+    fetch("/api/table_number", {
+        method: "GET",
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data["error"] === "") {
+            const table_number = data["data"];
+            if (table_number !== 0) {
+                chosen = table_number
+                document.getElementById(chosen).classList.add("chosen-table");
+                document.getElementById("button").innerText = "Call TA " + chosen;
+            }
+        }
+    })
+    .catch(err => console.error("Error fetching user info:", err));
+}
 
 document.querySelectorAll('.table').forEach(table => {
     table.addEventListener('click', () => {
-        if(chosen != "?"){
+        if(chosen != 0){
             document.getElementById(chosen).classList.remove("chosen-table");
         }
-        table.classList.add("chosen-table");
-        chosen = table.getAttribute('data-table-number');
-        document.getElementById("button").innerText = "Call TA " + chosen
+        fetch("/api/table_number", {
+            method: "POST",
+            headers: { 'Content-Type': 'application/json' },
+            body: table.getAttribute('data-table-number')
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data["error"] === "") {
+                table.classList.add("chosen-table");
+                chosen = table.getAttribute('data-table-number');
+                document.getElementById("button").innerText = "Call TA " + chosen
+            }
+        })
+        .catch(err => console.error("Error fetching user info:", err));
     });
 });
 
@@ -20,7 +50,7 @@ document.getElementById('oppgave').addEventListener('keypress', (event) => {
 });
 
 function requestHelp(){
-    if (chosen != "?"){
+    if (chosen != 0){
         fetch("/request_help", {
             method: "POST",
             headers: {'Content-Type': 'application/json'}, 
@@ -45,7 +75,6 @@ function requestHelp(){
             document.getElementById("warning").innerHTML = ""
         }, 10000);
     }
-
 }
 
 function updatePosition() {
@@ -70,6 +99,8 @@ function updatePosition() {
     });
 }
 
+fetchTableNumber();
+
 const socket = new WebSocket('ws://'+ window.location.hostname + ':27890');
 
 socket.onmessage = function (event) {
@@ -87,6 +118,7 @@ socket.onmessage = function (event) {
         document.getElementById("title").innerText = `TA queue`
     }
 }
+
 
 socket.onopen = function () {
     // Send a message to the WebSocket server
