@@ -4,12 +4,17 @@ from flask import Flask, request, render_template, make_response, jsonify
 import datetime
 import json
 import os
+import logging
 
 app = Flask(__name__)
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # Disable CSRF protection for testing
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_PASSORD', 'supersecretkey')  # Change this to a secure key in production
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_PASSWORD', 'supersecretkey')  # Change this to a secure key in production
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=1)
+
+app.logger.setLevel(logging.DEBUG)  # Ensure logging level is set to DEBUG
+logging.basicConfig(level=logging.DEBUG)  # Configure logging
+
 
 jwt = JWTManager(app)
 
@@ -33,6 +38,7 @@ def not_found_error(_):
 
 @app.route('/', methods=['GET'])
 def home():
+    app.logger.debug(app.config['JWT_SECRET_KEY'])
     if not request.cookies.get("access_token_cookie"):
         user_data = generate_deafault_user()
         response = make_response(render_template("index.html"))
@@ -104,5 +110,23 @@ def update_name():
     name = request.data.decode()
     user = json.loads(get_jwt_identity())
     user["name"] = name
+    response = make_response(jsonify({"error": ""}))
+    return set_jwt_cookie(response, user)
+
+@app.route('/api/task', methods=['GET'])
+@jwt_required(locations=["cookies"])
+def get_task():
+    try:
+        user = json.loads(get_jwt_identity())
+        return jsonify({"error": "", "data": user["task"]})
+    except Exception as e:
+        return jsonify({"error": str(e), "data": {}}), 500
+
+@app.route('/api/task', methods=['POST'])
+@jwt_required(locations=["cookies"])
+def update_task():
+    task = request.data.decode()
+    user = json.loads(get_jwt_identity())
+    user["task"] = task
     response = make_response(jsonify({"error": ""}))
     return set_jwt_cookie(response, user)

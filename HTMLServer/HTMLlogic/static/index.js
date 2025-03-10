@@ -35,6 +35,7 @@ document.querySelectorAll('.table').forEach(table => {
                 table.classList.add("chosen-table");
                 chosen = table.getAttribute('data-table-number');
                 document.getElementById("button").innerText = "Call TA " + chosen
+                startSocket("poll")
             }
         })
         .catch(err => console.error("Error fetching user info:", err));
@@ -51,10 +52,10 @@ document.getElementById('oppgave').addEventListener('keypress', (event) => {
 
 function requestHelp(){
     if (chosen != 0){
-        fetch("/request_help", {
+        fetch("/api/task", {
             method: "POST",
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({table_id:chosen, task:document.getElementById("oppgave").value})
+            headers: {'Content-Type': 'application/text'}, 
+            body: document.getElementById("oppgave").value
         }).then(res => 
             res.json()
         ).then(data=>{
@@ -65,7 +66,7 @@ function requestHelp(){
                 }, 7000);
             }
             else{
-                updatePosition()
+                startSocket("join")
             }
         });
     }
@@ -77,50 +78,66 @@ function requestHelp(){
     }
 }
 
-function updatePosition() {
-    fetch("/api/my_index", {
-        method: "GET",
-        headers: {'Content-Type': 'text/plain'}, 
-    }).then(res => 
-        res.json()
-    ).then(data=>{
-        if (data["error"] == "" && data["data"]["status"]=="In queue"){
-            document.getElementById("queue-info").innerText = `You are number ${data["data"]["index"]} in the queue`;
-            document.getElementById("title").innerText = `TA queue q=${data["data"]["index"]}`
-        }
-        else if(data["error"] == "" && data["data"]["status"]=="Getting help"){
-            document.getElementById("queue-info").innerText = `You are now getting help from ${data["data"]["helped_by"]}`;
-            document.getElementById("title").innerText = `TA queue q=0`
-        }
-        else{
+// function updatePosition() {
+//     fetch("/api/my_index", {
+//         method: "GET",
+//         headers: {'Content-Type': 'text/plain'}, 
+//     }).then(res => 
+//         res.json()
+//     ).then(data=>{
+//         if (data["error"] == "" && data["data"]["status"]=="In queue"){
+//             document.getElementById("queue-info").innerText = `You are number ${data["data"]["index"]} in the queue`;
+//             document.getElementById("title").innerText = `TA queue q=${data["data"]["index"]}`
+//         }
+//         else if(data["error"] == "" && data["data"]["status"]=="Getting help"){
+//             document.getElementById("queue-info").innerText = `You are now getting help from ${data["data"]["helped_by"]}`;
+//             document.getElementById("title").innerText = `TA queue q=0`
+//         }
+//         else{
+//             document.getElementById("queue-info").innerText = ""
+//             document.getElementById("title").innerText = `TA queue`
+//         }
+//     });
+// }
+
+
+function startSocket(command){
+    let socket = new WebSocket('ws://'+ window.location.hostname + ':27890/student'); 
+    if (command === "join"){
+        data = {command: "join"}
+        socket.onopen = function () {
+            socket.send(JSON.stringify(data));
+        };
+    }else if (command === "poll"){
+        data = {command: "poll"}
+        socket.onopen = function () {
+            socket.send(JSON.stringify(data));
+        };
+    }
+    socket.onclose = function (){
+        document.getElementById("queue-info").innerText = ""
+        document.getElementById("title").innerText = `TA queue`
+        console.log("Socket closed")
+    }
+    socket.onmessage = function (event) {
+        console.log(event.data)
+        const data = JSON.parse(event.data);
+        console.log(data)
+        if (data["message_type"] == "Error"){
+            console.error(data["error"])
+        } else if (data["message_type"] == "NotQueue"){
             document.getElementById("queue-info").innerText = ""
             document.getElementById("title").innerText = `TA queue`
+        } else if (data["message_type"] == "Index"){
+            document.getElementById("queue-info").innerText = `You are number ${data["data"]} in the queue`;
+            document.getElementById("title").innerText = `TA queue q=${data["data"]}`
+        } else if (data["message_type"] == "Helping"){
+            document.getElementById("queue-info").innerText = data["data"]
+            document.getElementById("title").innerText = `TA queue q=0`
         }
-    });
+    }
 }
 
 fetchTableNumber();
+startSocket("poll")
 
-const socket = new WebSocket('ws://'+ window.location.hostname + ':27890');
-
-socket.onmessage = function (event) {
-    const data = JSON.parse(event.data);
-    if (data["error"] == "" && data["data"]["status"]=="In queue"){
-        document.getElementById("queue-info").innerText = `You are number ${data["data"]["index"]} in the queue`;
-        document.getElementById("title").innerText = `TA queue q=${data["data"]["index"]}`
-    }
-    else if(data["error"] == "" && data["data"]["status"]=="Getting help"){
-        document.getElementById("queue-info").innerText = `You are now getting help from ${data["data"]["helped_by"]}`;
-        document.getElementById("title").innerText = `TA queue q=0`
-    }
-    else{
-        document.getElementById("queue-info").innerText = ""
-        document.getElementById("title").innerText = `TA queue`
-    }
-}
-
-
-socket.onopen = function () {
-    // Send a message to the WebSocket server
-    socket.send(document.cookie);
-};

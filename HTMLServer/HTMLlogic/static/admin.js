@@ -1,29 +1,11 @@
 function removeUser(id) {
-    fetch("/remove_from_queue", {
-        method: "POST",
-        headers: {'Content-Type': 'text/plain'}, 
-        body: id }).then(res => res.json()
-    ).then(data=>{
-        updateQueue()
-        if (data["error"] != ""){
-            console.log(data["error"])
-        }
-    });
+    data = {command: "remove", argument: parseInt(id)}
+    socket.send(JSON.stringify(data));
 }
 
 function helpUser(id) {
-    fetch("/help", {
-        method: "POST",
-        headers: {'Content-Type': 'text/plain'}, 
-        body: id
-    }).then(res => 
-        res.json()
-    ).then(data=>{
-       updateQueue()
-        if (data["error"] != ""){
-            console.log(data["error"])
-        }
-    });
+    data = {command: "help", argument: parseInt(id)}
+    socket.send(JSON.stringify(data));
 }
 
 function resetTables(){
@@ -48,93 +30,6 @@ function updateTable(id, index){
         table.classList.add("in-queue")
     }
 }
-
-function updateQueue() {
-    fetch("/api/queue", {
-        method: "GET",
-        headers: {'Content-Type': 'text/plain'}, 
-    }).then(res => 
-        res.json()
-    ).then(data=>{
-        if (data["error"] == ""){
-            resetTables()
-            table = document.getElementById("queue")
-            while(table.firstChild){
-                table.removeChild(table.firstChild)
-            }
-            tbody = document.createElement("tbody")
-            table.appendChild(tbody)
-            row = document.createElement("tr")
-            tbody.appendChild(row)
-            th = document.createElement("th")
-            th.innerText = "Index"
-            row.appendChild(th)
-            th = document.createElement("th")
-            th.innerText = "Table ID"
-            row.appendChild(th)
-            th = document.createElement("th")
-            th.innerText = "Needs help with"
-            row.appendChild(th)
-            th = document.createElement("th")
-            th.innerText = "Help"
-            row.appendChild(th)
-            th = document.createElement("th")
-            th.innerText = "Remove from queue"
-            row.appendChild(th)
-            offset = 0
-            max_index = 0
-            for (let i = 0; i < data["data"].length; i++) {
-                data_element = data["data"][i]
-                row = document.createElement("tr")
-                row.id = data_element["id"]
-                if(data_element["helped_by"] == null){
-                    tbody.appendChild(row)
-                    index = i+1-offset
-                }
-                else{
-                    row.classList.add("highlight-blue")
-                    if (tbody.children.length > 1){
-                        tbody.insertBefore(row, tbody.children[1])
-                    }
-                    else{
-                        tbody.appendChild(row)
-                    }
-                    index = 0
-                    offset += 1
-                }
-                td = document.createElement("td")
-                td.innerText = index
-                row.appendChild(td)
-                td = document.createElement("td")
-                td.innerText = data_element["table_id"]
-                row.appendChild(td)
-                td = document.createElement("td")
-                td.innerText = data_element["task"]
-                row.appendChild(td)
-                td = document.createElement("td")
-                button = document.createElement("button")
-                button.innerText = "Help"
-                button.onclick = (event) => helpUser(event.target.parentNode.parentNode.id)
-                td.appendChild(button)
-                row.appendChild(td)
-                td = document.createElement("td")
-                button = document.createElement("button")
-                button.innerText = "Remove"
-                button.onclick = (event) => removeUser(event.target.parentNode.parentNode.id)
-                td.appendChild(button)
-                row.appendChild(td)
-                updateTable(data_element["table_id"], index)
-                if (index > max_index) max_index = index
-            }
-            document.getElementById("title").innerText = `(${offset}/${max_index+offset}) TA queue admin`
-        }
-        else{
-            console.log(data["error"])
-        }
-    });
-    
-}
-
 
 document.getElementById('update_name').addEventListener('click', () => {
     sendUpdateName()
@@ -181,15 +76,15 @@ function updateName() {
     });
 }
 
-const socket = new WebSocket('ws://'+ window.location.hostname + ':27891');
+const socket = new WebSocket('ws://'+ window.location.hostname + ':27890/ta');
 socket.onopen = function () {
     // Send a message to the WebSocket server
-    socket.send(document.cookie);
+    //socket.send(document.cookie);
+    data = {command: "get_queue", argument: 0}
+    socket.send(JSON.stringify(data));
 };
 
-socket.onmessage = function (event) {
-    const data = JSON.parse(event.data);
-    if (data["error"] == ""){
+function make_queue(queue){
         resetTables()
         table = document.getElementById("queue")
         while(table.firstChild){
@@ -216,11 +111,11 @@ socket.onmessage = function (event) {
         row.appendChild(th)
         offset = 0
         max_index = 0
-        for (let i = 0; i < data["data"].length; i++) {
-            data_element = data["data"][i]
+        for (let i = 0; i < queue.length; i++) {
+            data_element = queue[i]
             row = document.createElement("tr")
-            row.id = data_element["id"]
-            if(data_element["helped_by"] == null){
+            row.id = data_element["table_number"]
+            if(data_element["index"] !== "0"){
                 tbody.appendChild(row)
                 index = i+1-offset
             }
@@ -239,7 +134,7 @@ socket.onmessage = function (event) {
             td.innerText = index
             row.appendChild(td)
             td = document.createElement("td")
-            td.innerText = data_element["table_id"]
+            td.innerText = data_element["table_number"]
             row.appendChild(td)
             td = document.createElement("td")
             td.innerText = data_element["task"]
@@ -256,10 +151,19 @@ socket.onmessage = function (event) {
             button.onclick = (event) => removeUser(event.target.parentNode.parentNode.id)
             td.appendChild(button)
             row.appendChild(td)
-            updateTable(data_element["table_id"], index)
+            updateTable(data_element["table_number"], index)
             if (index > max_index) max_index = index
         }
         document.getElementById("title").innerText = `(${offset}/${max_index+offset}) TA queue admin`
+
+}
+
+socket.onmessage = function (event) {
+    const data = JSON.parse(event.data);
+    if (data["message_type"] == "Queue"){
+        const queue = JSON.parse(data["data"])
+        make_queue(queue)
+        console.log(queue)
     }
     else{
         console.log(data["error"])

@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "SaharaQueueHtmlServer"
+version = "1.0.0"
+description = ""
+authors = ["Jo Remvik"]
+# readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+Flask = "^2.3.3"
+flask_jwt_extended = "^4.7.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
