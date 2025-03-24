@@ -1,3 +1,4 @@
 stats/**
 .env
 WSServer/target
+HTMLServer/HTMLlogic/__pycache__/
