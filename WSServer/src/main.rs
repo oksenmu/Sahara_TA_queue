@@ -95,7 +95,6 @@ fn get_jwt_secret() -> String {
 
 fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
     let jwt_secret = get_jwt_secret();
-    println!("Validating cookie with key {}", jwt_secret);
     if let Some(cookie_str) = cookie {
         let token = cookie_str.split("access_token_cookie=").nth(1)?;
         match decode::<Claims>(
@@ -104,7 +103,6 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
             &Validation::default()
         ) {
             Ok(token_data) => {
-                println!("Test1");
                 let claims = token_data.claims.parse_sub();
                 if let Some(token_data) = claims {
                     if (1..=30).contains(&token_data.table_number) {
@@ -114,7 +112,6 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
                     }
                 }
                 else {
-                    println!("Test2");
                     None
                 }
             }
@@ -545,6 +542,7 @@ async fn help_student(
                 // Temporarily store indices
                 let prev_idx = q.previous;
                 let next_idx = q.next;
+                let task = q.task.to_string();
 
                 // Update previous node if it exists
                 if let Some(qi_prev) = prev_idx {
@@ -562,7 +560,7 @@ async fn help_student(
                     if let QueueState::Q(ref mut q_next) = queue_lock[qi_next as usize] {
                         q_next.previous = prev_idx;
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 } else {
                     *q_tail_lock = prev_idx;
@@ -584,7 +582,7 @@ async fn help_student(
                             next_tx.send(ThreadCommand::Send(message));
                         }
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 }
 
@@ -592,7 +590,7 @@ async fn help_student(
                 let he = QueueElement {
                     value: 0,
                     helped_by: name.to_string(),
-                    task: "".to_string(),
+                    task,
                     next: Option::None,
                     previous: *h_tail_lock,
                 };
@@ -689,7 +687,7 @@ async fn remove_student(
                     if let QueueState::H(ref mut h_prev) = queue_lock[hi_prev as usize] {
                         h_prev.next = next_idx;
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 } else {
                     *h_head_lock = next_idx;
@@ -700,7 +698,7 @@ async fn remove_student(
                     if let QueueState::H(ref mut h_next) = queue_lock[hi_next as usize] {
                         h_next.previous = prev_idx;
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 } else {
                     *h_tail_lock = prev_idx;
@@ -737,7 +735,7 @@ async fn remove_student(
                     if let QueueState::Q(ref mut q_prev) = queue_lock[qi_prev as usize] {
                         q_prev.next = next_idx;
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 } else {
                     *q_head_lock = next_idx;
@@ -748,7 +746,7 @@ async fn remove_student(
                     if let QueueState::Q(ref mut q_next) = queue_lock[qi_next as usize] {
                         q_next.previous = prev_idx;
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 } else {
                     *q_tail_lock = prev_idx;
@@ -770,7 +768,7 @@ async fn remove_student(
                             next_tx.send(ThreadCommand::Send(message));
                         }
                     } else{
-                        panic!("Error in linked linst implementation")
+                        panic!("Error in linked list implementation")
                     }
                 }
 

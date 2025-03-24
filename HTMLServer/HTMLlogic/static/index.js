@@ -1,7 +1,7 @@
 var chosen = 0;
 
 function setFavicon(num) {
-    if (num < 0 || num > 30) {
+    if ((num < 0 || num > 30) && num !== "Q") {
         console.error("Number must be between 0 and 30.");
         return;
     }
@@ -142,12 +142,14 @@ function startSocket(command) {
         } else if (data["message_type"] == "NotQueue") {
             document.getElementById("queue-info").innerText = "";
             document.getElementById("title").innerText = `TA queue`;
+            setFavicon("Q");
         } else if (data["message_type"] == "Index") {
             document.getElementById("queue-info").innerText = `You are number ${data["data"]} in the queue`;
             setFavicon(data["data"]);
             document.getElementById("title").innerText = `TA queue q=${data["data"]}`;
         } else if (data["message_type"] == "Helping") {
             document.getElementById("queue-info").innerText = data["data"];
+            setFavicon(0);
             document.getElementById("title").innerText = `TA queue q=0`;
         }
     };
