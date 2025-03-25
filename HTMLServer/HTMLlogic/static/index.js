@@ -59,6 +59,10 @@ document.querySelectorAll(".table").forEach((table) => {
     });
 });
 
+document.getElementById("leave").addEventListener("click", () => {
+    startSocket("leave");
+});
+
 document.getElementById("button").addEventListener("click", () => {
     requestHelp();
 });
@@ -119,26 +123,35 @@ function startSocket(command) {
     let socket = new WebSocket("ws://" + window.location.hostname + ":27890/student");
     if (command === "join") {
         data = { command: "join" };
-        socket.onopen = function () {
+        socket.onopen = function() {
             socket.send(JSON.stringify(data));
         };
     } else if (command === "poll") {
         data = { command: "poll" };
-        socket.onopen = function () {
+        socket.onopen = function() {
+            socket.send(JSON.stringify(data));
+        };
+    } else if (command === "leave") {
+        data = { command: "leave" };
+        socket.onopen = function() {
             socket.send(JSON.stringify(data));
         };
     }
-    socket.onclose = function () {
+    socket.onclose = function() {
         document.getElementById("queue-info").innerText = "";
         document.getElementById("title").innerText = `TA queue`;
         console.log("Socket closed");
     };
-    socket.onmessage = function (event) {
+    socket.onmessage = function(event) {
         console.log(event.data);
         const data = JSON.parse(event.data);
         console.log(data);
         if (data["message_type"] == "Error") {
             console.error(data["error"]);
+            document.getElementById("warning").innerText = data["error"];
+            setTimeout(() => {
+                document.getElementById("warning").innerText = "";
+            }, 7000);
         } else if (data["message_type"] == "NotQueue") {
             document.getElementById("queue-info").innerText = "";
             document.getElementById("title").innerText = `TA queue`;

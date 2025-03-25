@@ -5,6 +5,8 @@ import datetime
 import json
 import os
 import logging
+import uuid
+import secrets
 
 app = Flask(__name__)
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
@@ -24,7 +26,8 @@ def generate_deafault_user():
         "table_number": 0,
         "name": "Teaching assistant",
         "task": "",
-        "helped_by": ""
+        "helped_by": "",
+        "id": secrets.randbelow(2**128)
     }
 
 def set_jwt_cookie(response, user_data):

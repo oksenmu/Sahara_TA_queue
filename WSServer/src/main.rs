@@ -14,14 +14,17 @@ use std::sync::Arc; use std::env;
 static IP: std::net::Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 static PORT: u16 = 3030;
 
+// legge til token her
 struct QueueElement{
     value: u32,
     helped_by: String,
     task: String,
+    id: u128,
     next: Option<u32>,
     previous: Option<u32>
 }
 
+// Legge til token her?
 #[derive(Debug, Deserialize, Serialize)]
 struct TokenData {
     ta: bool,
@@ -29,6 +32,7 @@ struct TokenData {
     name: String,
     task: String,
     helped_by: String,
+    id: u128
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -66,9 +70,9 @@ enum OutType{
 }
 
 enum QueueState{
-    Q(QueueElement),
-    H(QueueElement),
-    N
+    Q(QueueElement),    // I kø
+    H(QueueElement),    // Får hjelp
+    N                   // Ikke i kø
 }
 
 enum ThreadCommand{
@@ -112,6 +116,7 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
                     }
                 }
                 else {
+                    println!("Claims does not match");
                     None
                 }
             }
@@ -174,7 +179,7 @@ async fn main() {
     let h_head_clone = h_head.clone();
     let h_tail_clone = h_tail.clone();
 
-    println!("Starting WebSocket server...");
+    println!("Starting WebSocket server....");
 
     let student_route = warp::path("student")
         .and(warp::ws())
@@ -281,9 +286,18 @@ async fn handle_student_websocket(
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let table_number = cookie.table_number;
     let task = cookie.task;
+    let id = cookie.id;
     {
+        // if new socket already exists then shut that down and create new
         let mut students_lock = students.lock().await;
         if let Some(old_msg_tx) = &students_lock[cookie.table_number as usize]{
+            let out = Output{
+                error: "Someone else looking at your spot".to_string(),
+                message_type: OutType::Error,
+                data: "".to_string()
+            };
+            let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
+            old_msg_tx.send(ThreadCommand::Send(data));
             old_msg_tx.send(ThreadCommand::Shut);
         }
         students_lock[table_number as usize] = Option::Some(msg_tx.clone());
@@ -298,7 +312,10 @@ async fn handle_student_websocket(
                         if let Ok(command) = student_command{
                             match command.command {
                                 "poll" => poll_queue(&mut tx, &msg_tx, &queue, table_number).await,
-                                "join" => join_queue(&mut tx, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, table_number, &task).await,
+                                "join" => join_queue(&mut tx, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, table_number, &task, id).await,
+                                "leave" => leave_queue(&mut tx, &students, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, &h_tail, table_number, id).await,
+                                // add "leave" command
+                                // check if token is the same as the one that joined the queue
                                 _ => tx.send(WarpMessage::text(serde_json::to_string(
                                     &Output{
                                         error: "Invalid command".to_string(),
@@ -325,6 +342,44 @@ async fn handle_student_websocket(
     }
 }
 
+async fn leave_queue(
+    tx: &mut SplitSink<WebSocket, WarpMessage>,
+    students: &Students,
+    teaching_assistants: &TAs,
+    queue: &Queue,
+    q_head: &QueueIndex,
+    q_tail: &QueueIndex,
+    h_head: &QueueIndex,
+    h_tail: &QueueIndex,
+    table_number: u8,
+    id: u128
+) {
+    let queue_lock = queue.lock().await;
+    
+    let mut r = false;
+    if let QueueState::Q(q) = &queue_lock[table_number as usize]{
+        if q.id == id {
+            drop(queue_lock);
+            remove_student(tx, students, teaching_assistants, queue, q_head, q_tail, h_head, h_tail, table_number).await;
+            r = true;
+        }
+    } else if let QueueState::H(h) = &queue_lock[table_number as usize]{
+        if h.id == id {
+            drop(queue_lock);
+            remove_student(tx, students, teaching_assistants, queue, q_head, q_tail, h_head, h_tail, table_number).await;
+            r = true;
+        }
+    }
+    if !r {
+        let out = Output{
+            error: "Not in queue or not owner of queue spot".to_string(),
+            message_type: OutType::Error,
+            data: "".to_string()
+        };
+        tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    }
+}
+
 async fn join_queue(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
     teaching_assistants: &TAs,
@@ -334,6 +389,8 @@ async fn join_queue(
     h_head: &QueueIndex,
     table_number: u8,
     task: &String,
+    id: u128
+    // take in token
 ){
     let value: u32;
     {
@@ -350,16 +407,18 @@ async fn join_queue(
                 data: "".to_string()
             };
             tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
-            return ;
+            return;
         }
         if let Some(qt) = *q_tail_lock  {
             if let QueueState::Q(q) = &mut queue_lock[qt as usize]{
                 value = q.value+1;
                 q.next = Option::Some(table_number as u32);
+                // add token
                 let qe = QueueElement{
                     value: q.value+1,
                     helped_by: "".to_string(),
                     task: task.to_string(),
+                    id,
                     next: None,
                     previous: Some(qt)
                 };
@@ -371,10 +430,12 @@ async fn join_queue(
         }
         else{
             value = 1;
+            // add token
             let qe = QueueElement{
                 value: 1,
                 helped_by: "".to_string(),
                 task: task.to_string(),
+                id,
                 next: None,
                 previous: None
             };
@@ -543,6 +604,7 @@ async fn help_student(
                 let prev_idx = q.previous;
                 let next_idx = q.next;
                 let task = q.task.to_string();
+                let id = q.id;
 
                 // Update previous node if it exists
                 if let Some(qi_prev) = prev_idx {
@@ -591,6 +653,7 @@ async fn help_student(
                     value: 0,
                     helped_by: name.to_string(),
                     task,
+                    id,
                     next: Option::None,
                     previous: *h_tail_lock,
                 };
@@ -717,7 +780,7 @@ async fn remove_student(
                     let out = Output{
                         error: "".to_string(),
                         message_type: OutType::NotQueue,
-                        data: "Not in queue".to_string()
+                        data: "Removed from queue".to_string()
                     };
                     let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
                     removed_tx.send(ThreadCommand::Send(data));
@@ -782,7 +845,6 @@ async fn remove_student(
                 };
                 tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
                 if let Some(removed_tx) = &student_lock[table_number as usize]{
-                    println!("{}", table_number);
                     let out = Output{
                         error: "".to_string(),
                         message_type: OutType::NotQueue,
