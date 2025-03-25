@@ -2,3 +2,4 @@ stats/**
 .env
 WSServer/target
 HTMLServer/HTMLlogic/__pycache__/
+.DS_Store
