@@ -78,6 +78,14 @@ def admin():
         return render_template("403.html"), 403
     return render_template("admin.html")
 
+@app.route('/admin-flipped', methods=['GET'])
+@jwt_required(locations=["cookies"])
+def adminfliped():
+    user = json.loads(get_jwt_identity())
+    if not user.get("ta", False):
+        return render_template("403.html"), 403
+    return render_template("adminflipped.html")
+
 @app.route('/api/table_number', methods=['GET'])
 @jwt_required(locations=["cookies"])
 def get_table_number():

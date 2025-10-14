@@ -48,7 +48,7 @@ body {
 }
 
 .table {
-    
+
     flex: 1 1 calc(12% - 0.5vw); /* Scales to fit within row */
     aspect-ratio: 1.5 / 1; /* Maintain rectangle shape */
     background-color: #4caf50;
@@ -60,6 +60,12 @@ body {
     cursor: pointer;
     border-radius: 3px;
     transition: background-color 0.3s;
+}
+
+/* Invisible but keeps its flex size/slot */
+.table.is-hidden {
+  visibility: hidden;     /* hides visually, keeps layout space */
+  pointer-events: none;   /* not clickable */
 }
 
 .table:hover {

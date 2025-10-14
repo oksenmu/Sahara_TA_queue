@@ -91,7 +91,6 @@ impl Claims {
         serde_json::from_str(&self.sub).ok()
     }
 }
-
 // Get JWT secret from environment or fallback to default
 fn get_jwt_secret() -> String {
     env::var("JWT_PASSWORD").unwrap_or_else(|_| "supersecretkey".to_string())
@@ -126,6 +125,7 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
             },
         }
     } else {
+        println!("What??????");
         None
     }
 }
@@ -149,10 +149,12 @@ fn validate_ta_cookie(cookie: Option<String>) -> Option<TokenData> {
                     }
                 }
                 else {
+                    println!("Claims does not match");
                     None
                 }
             }
             Err(_) => {
+                println!("TA cookie validation failed");
                 None
             },
         }
@@ -179,7 +181,7 @@ async fn main() {
     let h_head_clone = h_head.clone();
     let h_tail_clone = h_tail.clone();
 
-    println!("Starting WebSocket server....");
+    println!("Starting WebSocket server.....");
 
     let student_route = warp::path("student")
         .and(warp::ws())
@@ -218,6 +220,7 @@ async fn main() {
                     warp::http::StatusCode::SWITCHING_PROTOCOLS
                 ).into_response()
             } else {
+                println!("No some cookie value");
                 warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
             }
         });
