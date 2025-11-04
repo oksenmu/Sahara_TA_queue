@@ -1,0 +1,30 @@
+.section {
+    --cols: 2; /* default is 2 columns */
+    display: grid;
+    grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+    gap: 2vw;
+}
+
+/* Left and right section styling */
+.left-section, .right-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2vw;
+    margin-top: 0;
+}
+
+.left-section .row,
+.right-section .row {
+    justify-content: flex-start;
+}
+
+.subrow {
+    display: flex;
+    gap: 5px;
+}
+
+.row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}

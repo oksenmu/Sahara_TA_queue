@@ -15,37 +15,19 @@ body {
     padding-top: 5vh;
 }
 
+.tables {
+    width: 100%;
+}
 
 .classroom {
     display: grid;
-    grid-template-areas:
-        "top-row top-row"
-        "left-section right-section";
-    gap: 5vw;
-    align-items: start;
-    width: 90vw; /* Container width relative to viewport */
-    /*max-width: 1200; /* Optional: max width for larger screens */
-    max-width: 50vw;
-}
-
-/* Left and right section styling */
-.left-section, .right-section {
-    display: flex;
-    flex-direction: column;
+    grid-template-rows: auto 1fr;
     gap: 2vw;
-    margin-top: 0;
+    align-items: start;
+    width: 90vw;
+    max-width: 50vw; /* keep your original constraint */
 }
 
-.subrow {
-    display: flex;
-    gap: 5px;
-}
-
-.row {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
 
 .table {
 
@@ -72,19 +54,15 @@ body {
     background-color: #357a38;
 }
 
-.left-section .row,
-.right-section .row {
-    justify-content: flex-start;
-}
 
 /* Top row styling */
 .request-help {
-    grid-area: top-row;
+    /* grid-area: top-row; */
     display: flex;
     flex-direction: column; /* Stack items vertically */
     align-items: center; /* Center items horizontally */
     gap: 0.2vw; /* Space between elements */
-    justify-content: center;
+    /* justify-content: center; */
     margin-bottom: 1vh;
 }
 
@@ -248,4 +226,33 @@ body {
 
 .warning {
     color: #b30000;
+}
+
+/* Visually mirror vertically */
+.rot-y {
+    transform: rotate(180deg);
+}
+
+.rot-y .table {
+    transform: rotate(180deg);
+}
+
+.bottom-left-btn {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.bottom-left-btn:hover {
+    background-color: #357a38;
+    transform: scale(1.05);
 }

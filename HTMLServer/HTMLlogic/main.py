@@ -5,7 +5,6 @@ import datetime
 import json
 import os
 import logging
-import uuid
 import secrets
 
 app = Flask(__name__)
@@ -13,6 +12,7 @@ app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # Disable CSRF protection for testing
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_PASSWORD', 'supersecretkey')  # Change this to a secure key in production
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=1)
+app.config['ROOM_NAME'] = os.environ.get('ROOM_NAME', 'sahara')
 
 app.logger.setLevel(logging.DEBUG)  # Ensure logging level is set to DEBUG
 logging.basicConfig(level=logging.DEBUG)  # Configure logging
@@ -41,12 +41,11 @@ def not_found_error(_):
 
 @app.route('/', methods=['GET'])
 def home():
-    app.logger.debug(app.config['JWT_SECRET_KEY'])
     if not request.cookies.get("access_token_cookie"):
         user_data = generate_deafault_user()
-        response = make_response(render_template("index.html"))
+        response = make_response(render_template("index.html", room_name=app.config["ROOM_NAME"]))
         return set_jwt_cookie(response, user_data)
-    return render_template("index.html")
+    return render_template("index.html", room_name=app.config["ROOM_NAME"])
 
 @app.route('/ta', methods=['GET'])
 def ta():
@@ -60,7 +59,7 @@ def ta():
 @jwt_required(locations=["cookies"])
 def update_token():
     password = request.data.decode()
-    
+
     if password == os.environ.get("TA_TOKEN", "TestToken"):
         user = json.loads(get_jwt_identity())
         user["ta"] = True  # Update user data
@@ -76,15 +75,7 @@ def admin():
     user = json.loads(get_jwt_identity())
     if not user.get("ta", False):
         return render_template("403.html"), 403
-    return render_template("admin.html")
-
-@app.route('/admin-flipped', methods=['GET'])
-@jwt_required(locations=["cookies"])
-def adminfliped():
-    user = json.loads(get_jwt_identity())
-    if not user.get("ta", False):
-        return render_template("403.html"), 403
-    return render_template("adminflipped.html")
+    return render_template("admin.html", room_name=app.config["ROOM_NAME"])
 
 @app.route('/api/table_number', methods=['GET'])
 @jwt_required(locations=["cookies"])
@@ -114,7 +105,6 @@ def get_name():
         return jsonify({"error": "", "data": user["name"]})
     except Exception as e:
         return jsonify({"error": str(e), "data": {}}), 500
-
 @app.route('/api/name', methods=['POST'])
 @jwt_required(locations=["cookies"])
 def update_name():
