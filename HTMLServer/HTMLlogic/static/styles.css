@@ -81,6 +81,16 @@ body {
     border-color: #357a38;
 }
 
+.request-help button:disabled,
+.request-help button:disabled:hover,
+.request-help button:disabled:active {
+    background-color: #9e9e9e;
+    color: #eeeeee;
+    cursor: not-allowed;
+    opacity: 0.65;
+    transform: none;
+}
+
 .request-help button {
     padding: 10px 20px;
     background-color: #4caf50;

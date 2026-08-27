@@ -5,4 +5,4 @@ function rotDiv() {
 }
 
 window.addEventListener("keypress", (event)=>event.key==="f"?rotDiv():undefined);
-document.getElementById("flipp").onclick = rotDiv
+document.getElementById("flip").onclick = rotDiv

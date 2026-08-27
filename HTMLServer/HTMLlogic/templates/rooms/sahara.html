@@ -1,82 +1,414 @@
-<section id="room-layout" class="section cols-2">
-    <div class="left-section">
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="1" data-table-number="1"></div>
-                <div class="table" id="2" data-table-number="2"></div>
-                <div class="table" id="3" data-table-number="3"></div>
+<section id="room-layout" class="section sahara-room">
+
+    <!--
+        Simplified floor plan.
+
+        Top    = windows/front of Sahara
+        Bottom = entrance/back of Sahara
+
+        The SVG is purely decorative and does not affect
+        the positioning of the tables.
+    -->
+    <svg
+        class="room-plan"
+        viewBox="0 0 760 1040"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+    >
+        <!-- Room interior -->
+        <path
+            class="room-fill"
+            d="
+                M 410 990
+                L 720 990
+                L 720 130
+                L 700 130
+                L 700 40
+                L 455 40
+                L 455 130
+                L 315 130
+                L 315 40
+                L 60 40
+                L 60 140
+                L 40 140
+                L 40 460
+                L 335 460
+                L 335 620
+                L 40 620
+                L 40 990
+                L 350 990
+                z
+            "
+        />
+
+        <!--
+            Walls.
+
+            The bottom wall deliberately stops before and
+            after the entrance, leaving a doorway opening.
+        -->
+        <path
+            class="room-wall"
+            d="
+                M 410 990
+                L 720 990
+                L 720 130
+                L 700 130
+                L 700 40
+                L 455 40
+                L 455 130
+                L 315 130
+                L 315 40
+                L 60 40
+                L 60 140
+                L 40 140
+                L 40 460
+                L 335 460
+                L 335 620
+                L 40 620
+                L 40 990
+                L 350 990
+            "
+        />
+
+        <!-- Windows -->
+        <line
+            class="room-window"
+            x1="130"
+            y1="40"
+            x2="245"
+            y2="40"
+        />
+
+        <line
+            class="room-window"
+            x1="525"
+            y1="40"
+            x2="630"
+            y2="40"
+        />
+
+
+        <!-- Door leaf -->
+        <line
+            class="door-leaf"
+            x1="350"
+            y1="990"
+            x2="350"
+            y2="930"
+        />
+
+        <!-- Door swing -->
+        <path
+            class="door-swing"
+            d="
+                M 350 930
+                A 60 60 0 0 1 410 990
+            "
+        />
+
+        <text
+            class="room-label entrance-label"
+            x="380"
+            y="955"
+            text-anchor="middle"
+        >
+            ENTRANCE
+        </text>
+    </svg>
+
+
+    <!--
+        Actual table layout.
+
+        This is positioned independently from the SVG,
+        so changing the room drawing cannot move the tables.
+    -->
+    <div class="table-area">
+
+        <!-- =================================================
+             LEFT SIDE
+             Tables 1–12
+             ================================================= -->
+        <div class="left-section">
+
+            <!-- Tables 1–6 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="1"
+                        data-table-number="1">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="2"
+                        data-table-number="2">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="3"
+                        data-table-number="3">
+                    </div>
+                </div>
+
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="4"
+                        data-table-number="4">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="5"
+                        data-table-number="5">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="6"
+                        data-table-number="6">
+                    </div>
+                </div>
             </div>
-            <div class="subrow">
-                <div class="table" id="4" data-table-number="4"></div>
-                <div class="table" id="5" data-table-number="5"></div>
-                <div class="table" id="6" data-table-number="6"></div>
+
+
+            <!-- Tables 7–12 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="7"
+                        data-table-number="7">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="8"
+                        data-table-number="8">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="9"
+                        data-table-number="9">
+                    </div>
+                </div>
+
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="10"
+                        data-table-number="10">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="11"
+                        data-table-number="11">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="12"
+                        data-table-number="12">
+                    </div>
+                </div>
             </div>
+
         </div>
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="7" data-table-number="7"></div>
-                <div class="table" id="8" data-table-number="8"></div>
-                <div class="table" id="9" data-table-number="9"></div>
+
+
+        <!-- =================================================
+             RIGHT SIDE
+             Tables 13–36
+             ================================================= -->
+        <div class="right-section">
+
+            <!-- Tables 13–18 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="13"
+                        data-table-number="13">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="14"
+                        data-table-number="14">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="15"
+                        data-table-number="15">
+                    </div>
+                </div>
+
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="16"
+                        data-table-number="16">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="17"
+                        data-table-number="17">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="18"
+                        data-table-number="18">
+                    </div>
+                </div>
             </div>
-            <div class="subrow">
-                <div class="table" id="10" data-table-number="10"></div>
-                <div class="table" id="11" data-table-number="11"></div>
-                <div class="table" id="12" data-table-number="12"></div>
+
+
+            <!-- Tables 19–24 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="19"
+                        data-table-number="19">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="20"
+                        data-table-number="20">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="21"
+                        data-table-number="21">
+                    </div>
+                </div>
+
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="22"
+                        data-table-number="22">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="23"
+                        data-table-number="23">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="24"
+                        data-table-number="24">
+                    </div>
+                </div>
             </div>
+
+
+            <!-- Tables 25–30 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="25"
+                        data-table-number="25">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="26"
+                        data-table-number="26">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="27"
+                        data-table-number="27">
+                    </div>
+                </div>
+
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="28"
+                        data-table-number="28">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="29"
+                        data-table-number="29">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="30"
+                        data-table-number="30">
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Tables 31–33 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="31"
+                        data-table-number="31">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="32"
+                        data-table-number="32">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="33"
+                        data-table-number="33">
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Tables 34–36 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="34"
+                        data-table-number="34">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="35"
+                        data-table-number="35">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="36"
+                        data-table-number="36">
+                    </div>
+                </div>
+            </div>
+
         </div>
+
     </div>
 
-    <!-- Right side rows -->
-    <div class="right-section">
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="13" data-table-number="13"></div>
-                <div class="table" id="14" data-table-number="14"></div>
-                <div class="table" id="15" data-table-number="15"></div>
-            </div>
-            <div class="subrow">
-                <div class="table" id="16" data-table-number="16"></div>
-                <div class="table" id="17" data-table-number="17"></div>
-                <div class="table" id="18" data-table-number="18"></div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="19" data-table-number="19"></div>
-                <div class="table" id="20" data-table-number="20"></div>
-                <div class="table" id="21" data-table-number="21"></div>
-            </div>
-            <div class="subrow">
-                <div class="table" id="22" data-table-number="22"></div>
-                <div class="table" id="23" data-table-number="23"></div>
-                <div class="table" id="24" data-table-number="24"></div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="25" data-table-number="25"></div>
-                <div class="table" id="26" data-table-number="26"></div>
-                <div class="table" id="27" data-table-number="27"></div>
-            </div>
-            <div class="subrow">
-                <div class="table" id="28" data-table-number="28"></div>
-                <div class="table" id="29" data-table-number="29"></div>
-                <div class="table" id="30" data-table-number="30"></div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="31" data-table-number="31"></div>
-                <div class="table" id="32" data-table-number="32"></div>
-                <div class="table" id="33" data-table-number="33"></div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="subrow">
-                <div class="table" id="34" data-table-number="34"></div>
-                <div class="table" id="35" data-table-number="35"></div>
-                <div class="table" id="36" data-table-number="36"></div>
-            </div>
-        </div>
-    </div>
 </section>

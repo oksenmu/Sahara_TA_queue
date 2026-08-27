@@ -29,7 +29,8 @@ function fetchTableNumber() {
                 if (table_number !== 0) {
                     chosen = table_number;
                     document.getElementById(chosen).classList.add("chosen-table");
-                    document.getElementById("button").innerText = "Call TA " + chosen;
+                    document.getElementById("button").innerText = "Call TA to table";
+                    document.getElementById("button").disabled = false;
                 }
             }
         })
@@ -37,7 +38,6 @@ function fetchTableNumber() {
 }
 
 document.querySelectorAll(".table").forEach((table) => {
-    table.innerText = table.id;
     table.addEventListener("click", () => {
         if (chosen != 0) {
             document.getElementById(chosen).classList.remove("chosen-table");
@@ -52,7 +52,8 @@ document.querySelectorAll(".table").forEach((table) => {
                 if (data["error"] === "") {
                     table.classList.add("chosen-table");
                     chosen = table.getAttribute("data-table-number");
-                    document.getElementById("button").innerText = "Call TA " + chosen;
+                    document.getElementById("button").innerText = "Call TA to table";
+                    document.getElementById("button").disabled = false;
                     startSocket("poll");
                 }
             })
