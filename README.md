@@ -1,7 +1,5 @@
 # Sahara TA Queue
 
-**The map has not been updated since Sahara was renovated.**
-
 This is a queue system for TAs using the Sahara lab at IIK NTNU.
 
 ## How to start the queue

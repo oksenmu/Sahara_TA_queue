@@ -13,6 +13,7 @@ use std::sync::Arc; use std::env;
 
 static IP: std::net::Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 static PORT: u16 = 3030;
+static NUMBER_OF_TABLES: usize = 36;
 
 // legge til token her
 struct QueueElement{
@@ -28,7 +29,7 @@ struct QueueElement{
 #[derive(Debug, Deserialize, Serialize)]
 struct TokenData {
     ta: bool,
-    table_number: u8,
+    table_number: usize,
     name: String,
     task: String,
     helped_by: String,
@@ -56,7 +57,7 @@ struct StudentCommand<'a> {
 #[derive(Debug, Deserialize, Serialize)]
 struct TaCommand<'a> {
     command: &'a str,
-    argument: u8
+    argument: usize
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -80,9 +81,9 @@ enum ThreadCommand{
     Send(WarpMessage)
 }
 
-type Students = Arc<Mutex<[Option<mpsc::UnboundedSender<ThreadCommand>>; 31]>>;
+type Students = Arc<Mutex<[Option<mpsc::UnboundedSender<ThreadCommand>>; NUMBER_OF_TABLES+1]>>;
 type TAs = Arc<Mutex<Vec<mpsc::UnboundedSender<ThreadCommand>>>>;
-type Queue = Arc<Mutex<[QueueState; 31]>>;
+type Queue = Arc<Mutex<[QueueState; NUMBER_OF_TABLES+1]>>;
 type QueueIndex = Arc<Mutex<Option<u32>>>;
 
 impl Claims {
@@ -108,7 +109,7 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
             Ok(token_data) => {
                 let claims = token_data.claims.parse_sub();
                 if let Some(token_data) = claims {
-                    if (1..=30).contains(&token_data.table_number) {
+                    if (1..=NUMBER_OF_TABLES).contains(&token_data.table_number) {
                         Option::Some(token_data)
                     } else {
                         None
@@ -354,7 +355,7 @@ async fn leave_queue(
     q_tail: &QueueIndex,
     h_head: &QueueIndex,
     h_tail: &QueueIndex,
-    table_number: u8,
+    table_number: usize,
     id: u128
 ) {
     let queue_lock = queue.lock().await;
@@ -390,14 +391,14 @@ async fn join_queue(
     q_head: &QueueIndex,
     q_tail: &QueueIndex,
     h_head: &QueueIndex,
-    table_number: u8,
+    table_number: usize,
     task: &String,
     id: u128
     // take in token
 ){
     let value: u32;
     {
-        let ta_lock = teaching_assistants.lock().await;
+        // let ta_lock = teaching_assistants.lock().await;
         let mut queue_lock = queue.lock().await;
         let mut q_head_lock = q_head.lock().await;
         let mut q_tail_lock = q_tail.lock().await;
@@ -477,7 +478,7 @@ async fn poll_queue(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
     msg_tx: &mpsc::UnboundedSender<ThreadCommand>,
     queue: &Queue,
-    table_number: u8
+    table_number: usize
 ){
     let queue_lock = queue.lock().await;
     if let QueueState::Q(q) = &queue_lock[table_number as usize]{
@@ -574,7 +575,7 @@ async fn help_student(
     h_head: &QueueIndex,
     h_tail: &QueueIndex,
     name: &String,
-    table_number: u8,
+    table_number: usize,
 ){
     {
         let student_lock = students.lock().await;
@@ -723,7 +724,7 @@ async fn remove_student(
     q_tail: &QueueIndex,
     h_head: &QueueIndex,
     h_tail: &QueueIndex,
-    table_number: u8
+    table_number: usize
 ){
     {
         let student_lock = students.lock().await;
@@ -901,7 +902,7 @@ async fn get_queue(
 }
 
 fn build_queue(
-    queue_lock: MutexGuard<'_, [QueueState; 31]>,
+    queue_lock: MutexGuard<'_, [QueueState; NUMBER_OF_TABLES+1]>,
     q_head_lock: MutexGuard<'_, Option<u32>>,
     h_head_lock: MutexGuard<'_, Option<u32>>
 ) -> String{
