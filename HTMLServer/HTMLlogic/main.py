@@ -14,6 +14,8 @@ app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_PASSWORD', 'supersecretkey') 
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=1)
 app.config['ROOM_NAME'] = os.environ.get('ROOM_NAME', 'sahara')
 
+TABLE_NUMBER = 36
+
 app.logger.setLevel(logging.DEBUG)  # Ensure logging level is set to DEBUG
 logging.basicConfig(level=logging.DEBUG)  # Configure logging
 
@@ -90,7 +92,7 @@ def get_table_number():
 @jwt_required(locations=["cookies"])
 def update_table_number():
     table_number = int(request.data.decode())
-    if 1 <= table_number <= 30:
+    if 1 <= table_number <= TABLE_NUMBER:
         user = json.loads(get_jwt_identity())
         user["table_number"] = table_number
         response = make_response(jsonify({"error": ""}))

@@ -9,7 +9,7 @@ function helpUser(id) {
 }
 
 function resetTables(){
-    for (let i = 1; i <= 30; i++) {
+    for (let i = 1; i <= 36; i++) {
         table = document.getElementById(i)
         table.classList = ["table"]        
         table.innerText = ""

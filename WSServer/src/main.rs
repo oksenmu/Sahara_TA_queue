@@ -910,13 +910,12 @@ fn build_queue(
     let mut itr_next_idx = *h_head_lock;
     while let Some(hi_next) = itr_next_idx{
         if let QueueState::H(ref h_next) = queue_lock[hi_next as usize] {
-            queue = format!(
-                "{}, {{\"index\": \"{}\", \"table_number\": \"{}\",\"task\": \"{}\"}}",
-                queue,
-                h_next.value,
-                hi_next,
-                h_next.task,
-            );
+            let item = serde_json::json!({
+                "index": h_next.value,
+                "table_number": hi_next,
+                "task": h_next.task,
+            });
+            queue = format!("{queue}, {item}");
             itr_next_idx = h_next.next;
         } else{
             panic!("Error in linked list implementation")
@@ -925,13 +924,12 @@ fn build_queue(
     let mut itr_next_idx = *q_head_lock;
     while let Some(qi_next) = itr_next_idx{
         if let QueueState::Q(ref q_next) = queue_lock[qi_next as usize] {
-            queue = format!(
-                "{}, {{\"index\": \"{}\", \"table_number\": \"{}\",\"task\": \"{}\"}}",
-                queue,
-                q_next.value,
-                qi_next,
-                q_next.task,
-            );
+            let item = serde_json::json!({
+                "index": q_next.value,
+                "table_number": qi_next,
+                "task": q_next.task,
+            });
+            queue = format!("{queue}, {item}");
             itr_next_idx = q_next.next;
         } else{
             panic!("Error in linked list implementation")
