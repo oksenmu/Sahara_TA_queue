@@ -11,7 +11,7 @@ app = Flask(__name__)
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
 app.config["JWT_COOKIE_CSRF_PROTECT"] = False  # Disable CSRF protection for testing
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_PASSWORD', 'supersecretkey')  # Change this to a secure key in production
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=1)
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=2)
 app.config['ROOM_NAME'] = os.environ.get('ROOM_NAME', 'sahara')
 
 TABLE_NUMBER = 36
@@ -34,7 +34,7 @@ def generate_deafault_user():
 
 def set_jwt_cookie(response, user_data):
     access_token = create_access_token(identity=json.dumps(user_data))
-    response.set_cookie("access_token_cookie", access_token, httponly=True, samesite="strict")
+    response.set_cookie("access_token_cookie", access_token, expires=int((datetime.datetime.now() + datetime.timedelta(days=1)).timestamp()), httponly=True, samesite="strict")
     return response
 
 @app.errorhandler(404)

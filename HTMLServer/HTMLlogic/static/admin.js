@@ -115,7 +115,7 @@ function make_queue(queue){
             data_element = queue[i]
             row = document.createElement("tr")
             row.id = data_element["table_number"]
-            if(data_element["index"] !== "0"){
+            if(data_element["index"] !== 0){
                 tbody.appendChild(row)
                 index = i+1-offset
             }
