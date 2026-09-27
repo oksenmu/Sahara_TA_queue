@@ -1,3 +1,5 @@
+TABLE_NUMBER = 44;
+
 function removeUser(id) {
     data = {command: "remove", argument: parseInt(id)}
     socket.send(JSON.stringify(data));
@@ -9,7 +11,7 @@ function helpUser(id) {
 }
 
 function resetTables(){
-    for (let i = 1; i <= 36; i++) {
+    for (let i = 1; i <= TABLE_NUMBER; i++) {
         table = document.getElementById(i)
         table.classList = ["table"]        
         table.innerText = ""

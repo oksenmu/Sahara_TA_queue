@@ -222,12 +222,28 @@
    LEFT / RIGHT TABLE COLUMNS
    ========================================================== */
 
-#room-layout .left-section,
+#room-layout .left-section {
+    position: relative;
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+
+    gap: var(--row-gap);
+
+    width: 100%;
+
+    margin: 0;
+    padding: 0;
+
+    z-index: 2;
+}
 #room-layout .right-section {
     position: relative;
 
     display: flex;
     flex-direction: column;
+    align-items: flex-end;
 
     gap: var(--row-gap);
 
@@ -251,7 +267,7 @@
     gap: var(--table-gap);
 
     margin: 0;
-    padding: 0;
+    padding: 0px;
 }
 
 
@@ -262,15 +278,23 @@
     display: flex;
 
     flex-direction: row;
+    width: max-content;
     justify-content: center;
     align-items: center;
 
     gap: var(--table-gap);
 
     margin: 0;
-    padding: 0;
+    padding: 0px;
 }
 
+/* ==========================================================
+   Storage room
+   ========================================================== */
+
+#room-layout .storageroom{
+    padding: 110px;
+}
 
 /* ==========================================================
    INDIVIDUAL TABLES

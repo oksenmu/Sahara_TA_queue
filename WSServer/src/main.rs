@@ -13,7 +13,7 @@ use std::sync::Arc; use std::env;
 
 static IP: std::net::Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 static PORT: u16 = 3030;
-static NUMBER_OF_TABLES: usize = 36;
+static TABLE_NUMBER: usize = 44;
 
 // legge til token her
 struct QueueElement{
@@ -81,9 +81,9 @@ enum ThreadCommand{
     Send(WarpMessage)
 }
 
-type Students = Arc<Mutex<[Option<mpsc::UnboundedSender<ThreadCommand>>; NUMBER_OF_TABLES+1]>>;
+type Students = Arc<Mutex<[Option<mpsc::UnboundedSender<ThreadCommand>>; TABLE_NUMBER+1]>>;
 type TAs = Arc<Mutex<Vec<mpsc::UnboundedSender<ThreadCommand>>>>;
-type Queue = Arc<Mutex<[QueueState; NUMBER_OF_TABLES+1]>>;
+type Queue = Arc<Mutex<[QueueState; TABLE_NUMBER+1]>>;
 type QueueIndex = Arc<Mutex<Option<u32>>>;
 
 impl Claims {
@@ -109,7 +109,7 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
             Ok(token_data) => {
                 let claims = token_data.claims.parse_sub();
                 if let Some(token_data) = claims {
-                    if (1..=NUMBER_OF_TABLES).contains(&token_data.table_number) {
+                    if (1..=TABLE_NUMBER).contains(&token_data.table_number) {
                         Option::Some(token_data)
                     } else {
                         None
@@ -902,7 +902,7 @@ async fn get_queue(
 }
 
 fn build_queue(
-    queue_lock: MutexGuard<'_, [QueueState; NUMBER_OF_TABLES+1]>,
+    queue_lock: MutexGuard<'_, [QueueState; TABLE_NUMBER+1]>,
     q_head_lock: MutexGuard<'_, Option<u32>>,
     h_head_lock: MutexGuard<'_, Option<u32>>
 ) -> String{

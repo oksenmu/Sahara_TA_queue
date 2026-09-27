@@ -14,7 +14,7 @@ app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_PASSWORD', 'supersecretkey') 
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=2)
 app.config['ROOM_NAME'] = os.environ.get('ROOM_NAME', 'sahara')
 
-TABLE_NUMBER = 36
+TABLE_NUMBER = 44
 
 app.logger.setLevel(logging.DEBUG)  # Ensure logging level is set to DEBUG
 logging.basicConfig(level=logging.DEBUG)  # Configure logging
