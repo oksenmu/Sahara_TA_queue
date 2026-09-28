@@ -142,7 +142,7 @@ function make_queue(queue){
             row.appendChild(td)
             td = document.createElement("td")
             if ("helped_by" in data_element){
-                td.innerText = `${data_element["task"]}(Helped by : ${data_element["helped_by"]})`
+                td.innerText = `${data_element["task"]} (Helped by : ${data_element["helped_by"]})`
             } else {
                 td.innerText = data_element["task"]
             }
