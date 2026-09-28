@@ -57,7 +57,8 @@ struct StudentCommand<'a> {
 #[derive(Debug, Deserialize, Serialize)]
 struct TaCommand<'a> {
     command: &'a str,
-    argument: usize
+    argument: usize,
+    value: &'a str
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -521,7 +522,7 @@ async fn handle_ta_websocket(
 ){
     let (mut tx, mut rx) = ws.split();
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
-    let name = cookie.name;
+    let mut name = cookie.name;
     {
         let mut ta_lock = teaching_assistants.lock().await;
         ta_lock.push(msg_tx.clone());
@@ -538,6 +539,7 @@ async fn handle_ta_websocket(
                                 "help" => help_student(&mut tx, &students, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, &h_tail, &name, command.argument).await,
                                 "remove" => remove_student(&mut tx, &students, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, &h_tail, command.argument).await,
                                 "get_queue" => get_queue(&mut tx, &queue, &q_head, &h_head).await,
+                                "set_name" => set_name(&mut tx, command, &mut name).await,
                                 _ => tx.send(WarpMessage::text(serde_json::to_string(
                                     &Output{
                                         error: "Invalid command".to_string(),
@@ -901,6 +903,21 @@ async fn get_queue(
     tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
 }
 
+async fn set_name<'a>(
+    tx: &mut SplitSink<WebSocket, WarpMessage>,
+    command: TaCommand<'a>,
+    name: &mut String,
+){
+    *name = command.value.to_string();
+    let out = Output {
+        error: "".to_string(),
+        message_type: OutType::Queue,
+        data: name.clone()
+    };
+
+    tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
+}
+
 fn build_queue(
     queue_lock: MutexGuard<'_, [QueueState; TABLE_NUMBER+1]>,
     q_head_lock: MutexGuard<'_, Option<u32>>,
@@ -914,6 +931,7 @@ fn build_queue(
                 "index": h_next.value,
                 "table_number": hi_next,
                 "task": h_next.task,
+                "helped_by": h_next.helped_by,
             });
             queue = format!("{queue}, {item}");
             itr_next_idx = h_next.next;

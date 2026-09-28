@@ -1,12 +1,12 @@
 TABLE_NUMBER = 44;
 
 function removeUser(id) {
-    data = {command: "remove", argument: parseInt(id)}
+    data = {command: "remove", argument: parseInt(id), "value": ""}
     socket.send(JSON.stringify(data));
 }
 
 function helpUser(id) {
-    data = {command: "help", argument: parseInt(id)}
+    data = {command: "help", argument: parseInt(id), "value": ""}
     socket.send(JSON.stringify(data));
 }
 
@@ -42,6 +42,8 @@ document.getElementById('name').addEventListener('keypress', (event) => {
 });
 
 function sendUpdateName(){
+    data = {command: "set_name", argument: 0, "value": document.getElementById("name").value}
+    socket.send(JSON.stringify(data));
     fetch("/api/name", {
         method: "POST",
         headers: {'Content-Type': 'text/plain'}, 
@@ -82,7 +84,7 @@ const socket = new WebSocket('ws://'+ window.location.hostname + ':27890/ta');
 socket.onopen = function () {
     // Send a message to the WebSocket server
     //socket.send(document.cookie);
-    data = {command: "get_queue", argument: 0}
+    data = {command: "get_queue", argument: 0, "value": ""}
     socket.send(JSON.stringify(data));
 };
 
@@ -139,7 +141,11 @@ function make_queue(queue){
             td.innerText = data_element["table_number"]
             row.appendChild(td)
             td = document.createElement("td")
-            td.innerText = data_element["task"]
+            if ("helped_by" in data_element){
+                td.innerText = `${data_element["task"]}(Helped by : ${data_element["helped_by"]})`
+            } else {
+                td.innerText = data_element["task"]
+            }
             row.appendChild(td)
             td = document.createElement("td")
             button = document.createElement("button")
