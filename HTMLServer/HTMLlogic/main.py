@@ -47,7 +47,19 @@ def home():
         user_data = generate_deafault_user()
         response = make_response(render_template("index.html", room_name=app.config["ROOM_NAME"]))
         return set_jwt_cookie(response, user_data)
-    return render_template("index.html", room_name=app.config["ROOM_NAME"])
+    return render_template("index.html")
+
+@app.route('/rooms', methods=['GET'])
+def rooms():
+    return jsonify(["sahara"]), 200
+
+@app.route('/rooms/sahara', methods=['GET'])
+def sahara():
+    if not request.cookies.get("access_token_cookie"):
+        user_data = generate_deafault_user()
+        response = make_response(render_template("index.html", room_name=app.config["ROOM_NAME"]))
+        return set_jwt_cookie(response, user_data)
+    return render_template("rooms/sahara.html")
 
 @app.route('/ta', methods=['GET'])
 def ta():
@@ -77,7 +89,7 @@ def admin():
     user = json.loads(get_jwt_identity())
     if not user.get("ta", False):
         return render_template("403.html"), 403
-    return render_template("admin.html", room_name=app.config["ROOM_NAME"])
+    return render_template("admin.html")
 
 @app.route('/api/table_number', methods=['GET'])
 @jwt_required(locations=["cookies"])
@@ -107,6 +119,7 @@ def get_name():
         return jsonify({"error": "", "data": user["name"]})
     except Exception as e:
         return jsonify({"error": str(e), "data": {}}), 500
+
 @app.route('/api/name', methods=['POST'])
 @jwt_required(locations=["cookies"])
 def update_name():
@@ -116,20 +129,3 @@ def update_name():
     response = make_response(jsonify({"error": ""}))
     return set_jwt_cookie(response, user)
 
-@app.route('/api/task', methods=['GET'])
-@jwt_required(locations=["cookies"])
-def get_task():
-    try:
-        user = json.loads(get_jwt_identity())
-        return jsonify({"error": "", "data": user["task"]})
-    except Exception as e:
-        return jsonify({"error": str(e), "data": {}}), 500
-
-@app.route('/api/task', methods=['POST'])
-@jwt_required(locations=["cookies"])
-def update_task():
-    task = request.data.decode()
-    user = json.loads(get_jwt_identity())
-    user["task"] = task
-    response = make_response(jsonify({"error": ""}))
-    return set_jwt_cookie(response, user)

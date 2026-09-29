@@ -6,7 +6,6 @@
     <title id="title">TA queue</title>
     <link rel="icon" type="image/png" href="static/favicons/Q.png" />
     <link rel="stylesheet" href="static/styles.css" />
-    <link rel="stylesheet" href={{"static/rooms/" + room_name + ".css"}} />
 </head>
 <body>
     <div class="classroom">
@@ -20,7 +19,6 @@
             <div id="warning" class="warning"></div>
         </div>
         <div class="tables" id="tables">
-            {% include ("rooms/" ~ room_name ~ ".html") %}
         </div>
     </div>
 

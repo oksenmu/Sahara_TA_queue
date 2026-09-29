@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title id="title">TA queue admin</title>
     <link rel="stylesheet" href="static/styles.css">
-    <link rel="stylesheet" href={{"static/rooms/" + room_name + ".css"}}/>
 </head>
 <body>
     <div class="split">
@@ -20,7 +19,6 @@
                     <div id="warning" class="warning"></div>
                 </div>
                 <div class="tables" id="tables">
-                    {% include ("rooms/" ~ room_name ~ ".html") %}
                 </div>
             </div>
         </div>
@@ -33,7 +31,7 @@
         </div>
     </div>
     <button id="flip" class="bottom-left-btn">Flip classroom</button>
-    <script src="static/index.js"></script>
     <script src="static/admin.js"></script>
+    <script src="static/index.js"></script>
 </body>
 </html>

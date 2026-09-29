@@ -33,36 +33,6 @@ function updateTable(id, index){
     }
 }
 
-document.getElementById('update_name').addEventListener('click', () => {
-    sendUpdateName()
-});
-
-document.getElementById('name').addEventListener('keypress', (event) => {
-    if(event.key === "Enter") sendUpdateName()
-});
-
-function sendUpdateName(){
-    data = {command: "set_name", argument: 0, "value": document.getElementById("name").value}
-    socket.send(JSON.stringify(data));
-    fetch("/api/name", {
-        method: "POST",
-        headers: {'Content-Type': 'text/plain'}, 
-        body: document.getElementById("name").value
-    }).then(res => 
-        res.json()
-    ).then(data=>{
-        if (data["error"] != ""){
-            document.getElementById("warning").innerText = data["error"];
-            setTimeout(() => {
-                document.getElementById("warning").innerHTML = ""
-            }, 7000);
-        }
-        else{
-            document.getElementById("name-info").innerText = document.getElementById("name").value
-        }
-    });
-
-}
 
 function updateName() {
     fetch("/api/name", {
@@ -80,13 +50,6 @@ function updateName() {
     });
 }
 
-const socket = new WebSocket('ws://'+ window.location.hostname + ':27890/ta');
-socket.onopen = function () {
-    // Send a message to the WebSocket server
-    //socket.send(document.cookie);
-    data = {command: "get_queue", argument: 0, "value": ""}
-    socket.send(JSON.stringify(data));
-};
 
 function make_queue(queue){
         resetTables()
@@ -163,19 +126,61 @@ function make_queue(queue){
             if (index > max_index) max_index = index
         }
         document.getElementById("title").innerText = `(${offset}/${max_index+offset}) TA queue admin`
-
 }
 
-socket.onmessage = function (event) {
-    const data = JSON.parse(event.data);
-    if (data["message_type"] == "Queue"){
-        const queue = JSON.parse(data["data"])
-        make_queue(queue)
-        console.log(queue)
-    }
-    else{
-        console.log(data["error"])
+function sendUpdateName(){
+    data = {command: "set_name", argument: 0, "value": document.getElementById("name").value}
+    socket.send(JSON.stringify(data));
+    fetch("/api/name", {
+        method: "POST",
+        headers: {'Content-Type': 'text/plain'}, 
+        body: document.getElementById("name").value
+    }).then(res => 
+        res.json()
+    ).then(data=>{
+        if (data["error"] != ""){
+            document.getElementById("warning").innerText = data["error"];
+            setTimeout(() => {
+                document.getElementById("warning").innerHTML = ""
+            }, 7000);
+        }
+        else{
+            document.getElementById("name-info").innerText = document.getElementById("name").value
+        }
+    });
+}
+
+function init(){
+    socket.onmessage = function (event) {
+        const data = JSON.parse(event.data);
+        if (data["message_type"] == "Queue"){
+            const queue = JSON.parse(data["data"])
+            make_queue(queue)
+            console.log(queue)
+        }
+        else{
+            console.log(data["error"])
+        }
     }
 }
+
+const socket = new WebSocket('ws://'+ window.location.hostname + ':27890/ta');
+socket.onopen = function () {
+    // Send a message to the WebSocket server
+    //socket.send(document.cookie);
+    data = {command: "get_queue", argument: 0, "value": ""}
+    socket.send(JSON.stringify(data));
+};
+
+document.getElementById('update_name').addEventListener('click', () => {
+    sendUpdateName()
+});
+
+document.getElementById('name').addEventListener('keypress', (event) => {
+    if(event.key === "Enter") sendUpdateName()
+});
+
+
 
 updateName()
+

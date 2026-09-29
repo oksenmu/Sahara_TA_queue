@@ -37,60 +37,50 @@ function fetchTableNumber() {
         .catch((err) => console.error("Error fetching user info:", err));
 }
 
-document.querySelectorAll(".table").forEach((table) => {
-    table.addEventListener("click", () => {
-        if (chosen != 0) {
-            document.getElementById(chosen).classList.remove("chosen-table");
-        }
-        fetch("/api/table_number", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: table.getAttribute("data-table-number"),
-        })
-            .then((res) => res.json())
-            .then((data) => {
-                if (data["error"] === "") {
-                    table.classList.add("chosen-table");
-                    chosen = table.getAttribute("data-table-number");
-                    document.getElementById("button").innerText = "Call TA to table";
-                    document.getElementById("button").disabled = false;
-                    startSocket("poll");
-                }
+function init(){
+    document.querySelectorAll(".table").forEach((table) => {
+        table.addEventListener("click", () => {
+            if (chosen != 0) {
+                document.getElementById(chosen).classList.remove("chosen-table");
+            }
+            fetch("/api/table_number", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: table.getAttribute("data-table-number"),
             })
-            .catch((err) => console.error("Error fetching user info:", err));
+                .then((res) => res.json())
+                .then((data) => {
+                    if (data["error"] === "") {
+                        table.classList.add("chosen-table");
+                        chosen = table.getAttribute("data-table-number");
+                        document.getElementById("button").innerText = "Call TA to table";
+                        document.getElementById("button").disabled = false;
+                        startSocket("poll");
+                    }
+                })
+                .catch((err) => console.error("Error fetching user info:", err));
+        });
     });
-});
 
-document.getElementById("leave").addEventListener("click", () => {
-    startSocket("leave");
-});
+    document.getElementById("leave").addEventListener("click", () => {
+        startSocket("leave");
+    });
 
-document.getElementById("button").addEventListener("click", () => {
-    requestHelp();
-});
+    document.getElementById("button").addEventListener("click", () => {
+        requestHelp();
+    });
 
-document.getElementById("oppgave").addEventListener("keypress", (event) => {
-    if (event.key === "Enter") requestHelp();
-});
+    document.getElementById("oppgave").addEventListener("keypress", (event) => {
+        if (event.key === "Enter") requestHelp();
+    });
+
+    fetchTableNumber();
+    startSocket("poll");
+};
 
 function requestHelp() {
     if (chosen != 0) {
-        fetch("/api/task", {
-            method: "POST",
-            headers: { "Content-Type": "application/text" },
-            body: document.getElementById("oppgave").value,
-        })
-            .then((res) => res.json())
-            .then((data) => {
-                if (data["error"] != "") {
-                    document.getElementById("warning").innerText = data["error"];
-                    setTimeout(() => {
-                        document.getElementById("warning").innerHTML = "";
-                    }, 7000);
-                } else {
-                    startSocket("join");
-                }
-            });
+        startSocket("join");
     } else {
         document.getElementById("warning").innerText = "Please select your table";
         setTimeout(() => {
@@ -148,5 +138,3 @@ function startSocket(command) {
     };
 }
 
-fetchTableNumber();
-startSocket("poll");
