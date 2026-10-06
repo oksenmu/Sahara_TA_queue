@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title id="title">TA queue</title>
+    <link rel="icon" type="image/png" href="/favicons/Q.png" />
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+    <div class="classroom">
+        <div class="request-help">
+            <div class="input-group">
+                <input id="oppgave" type="text" placeholder="Which task do you need help with?" />
+                <button id="button" disabled>Please select a table</button>
+                <button id="leave">Leave queue</button>
+            </div>
+            <div id="queue-info" class="queue-info"></div>
+            <div id="warning" class="warning"></div>
+        </div>
+        <div class="tables" id="tables">
+            %%ROOM%%
+        </div>
+    </div>
+
+    <button id="flip" class="bottom-left-btn">Flip classroom</button>
+    <script src="/student.js"></script>
+    <script src="/index.js"></script>
+</body>
+
+</html>

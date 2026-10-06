@@ -2,11 +2,13 @@ use futures_util::stream::SplitSink;
 use warp::reply::Reply;
 use warp::Filter;
 use warp::ws::{Message as WarpMessage, WebSocket} ;
+use warp::http::header::{CONTENT_TYPE, HeaderValue};
 use futures_util::{StreamExt, SinkExt};
 use tokio::sync::{mpsc, Mutex, MutexGuard};
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{decode, encode, DecodingKey, Validation, Header, EncodingKey};
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc; use std::env;
 
 // Shared list of connected clients
@@ -38,15 +40,27 @@ struct TokenData {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Claims {
-    sub: String,
+    user: TokenData,
     exp: usize
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct Output {
+struct WebsoccketMessage {
     error: String,
     data: String,
     message_type: OutType
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Name {
+    error: String,
+    data: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TableNumber {
+    error: String,
+    data: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -87,47 +101,81 @@ type TAs = Arc<Mutex<Vec<mpsc::UnboundedSender<ThreadCommand>>>>;
 type Queue = Arc<Mutex<[QueueState; TABLE_NUMBER+1]>>;
 type QueueIndex = Arc<Mutex<Option<u32>>>;
 
-impl Claims {
-    /// Attempts to parse the `sub` field into a `SubClaims` struct
-    fn parse_sub(&self) -> Option<TokenData> {
-        serde_json::from_str(&self.sub).ok()
-    }
-}
-// Get JWT secret from environment or fallback to default
+// // Get JWT secret from environment or fallback to default
 fn get_jwt_secret() -> String {
     env::var("JWT_PASSWORD").unwrap_or_else(|_| "supersecretkey".to_string())
+}
+
+fn get_ta_token() -> String {
+    env::var("TA_TOKEN").unwrap_or_else(|_| "ta_token".to_string())
+}
+
+fn get_access_token(cookie_header: &str) -> Option<&str> {
+    cookie_header
+        .split(';')
+        .map(str::trim)
+        .find_map(|cookie| {
+            let (name, value) = cookie.split_once('=')?;
+            if name == "access_token_cookie" {
+                Some(value)
+            } else {
+                None
+            }
+        })
+}
+
+fn set_jwt_cookie<R: Reply>(response: R, user: TokenData) -> impl Reply {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let claims = Claims {
+        user,
+        exp: (now + 60 * 60 * 24) as usize, // 1 day
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
+    ).unwrap();
+
+    warp::reply::with_header(
+        response,
+        "Set-Cookie",
+        format!(
+            // "access_token_cookie={}; Max-Age=86400; Path=/; HttpOnly; SameSite=Strict",
+            "access_token_cookie={}; Max-Age=86400; Path=/; SameSite=Strict",
+            token
+        ),
+    )
 }
 
 fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
     let jwt_secret = get_jwt_secret();
     if let Some(cookie_str) = cookie {
-        let token = cookie_str.split("access_token_cookie=").nth(1)?;
+        let token = get_access_token(&cookie_str)?;
         match decode::<Claims>(
             token,
             &DecodingKey::from_secret(jwt_secret.as_ref()),
             &Validation::default()
         ) {
             Ok(token_data) => {
-                let claims = token_data.claims.parse_sub();
-                if let Some(token_data) = claims {
-                    if (1..=TABLE_NUMBER).contains(&token_data.table_number) {
-                        Option::Some(token_data)
-                    } else {
-                        None
-                    }
-                }
-                else {
-                    println!("Claims does not match");
+                let token_data = token_data.claims.user;
+                if (0..=TABLE_NUMBER).contains(&token_data.table_number) {
+                    Option::Some(token_data)
+                } else {
                     None
                 }
             }
-            Err(_) => {
-                println!("Cookie validation failed");
+            Err(err) => {
+                println!("Cookie validation failed: {:?}", err);
                 None
             },
         }
     } else {
-        println!("What??????");
+        println!("No Cookie");
         None
     }
 }
@@ -135,38 +183,36 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
 fn validate_ta_cookie(cookie: Option<String>) -> Option<TokenData> {
     let jwt_secret = get_jwt_secret();
     if let Some(cookie_str) = cookie {
-        let token = cookie_str.split("access_token_cookie=").nth(1)?;
+        let token = get_access_token(&cookie_str)?;
         match decode::<Claims>(
             token,
             &DecodingKey::from_secret(jwt_secret.as_ref()),
             &Validation::default()
         ) {
             Ok(token_data) => {
-                let claims = token_data.claims.parse_sub();
-                if let Some(token_data) = claims {
-                    if token_data.ta {
-                        Option::Some(token_data)
-                    } else {
-                        None
-                    }
-                }
-                else {
-                    println!("Claims does not match");
+                let token_data = token_data.claims.user;
+                if token_data.ta {
+                    Option::Some(token_data)
+                } else {
+                    println!("Is not TA");
                     None
                 }
             }
-            Err(_) => {
-                println!("TA cookie validation failed");
+            Err(err) => {
+                println!("TA cookie validation failed {:?}", err);
                 None
             },
         }
     } else {
+        println!("No cookie");
         None
     }
 }
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
+
     let students: Students = Arc::new(Mutex::new(std::array::from_fn(|_| None)));
     let teaching_assistants: TAs = Arc::new(Mutex::new(Vec::new()));
     let queue: Queue = Arc::new(Mutex::new(std::array::from_fn(|_| QueueState::N)));
@@ -183,7 +229,113 @@ async fn main() {
     let h_head_clone = h_head.clone();
     let h_tail_clone = h_tail.clone();
 
-    println!("Starting WebSocket server.....");
+    let file_index_html = tokio::fs::read("frontend/index.html")
+        .await
+        .expect("failed to read file");
+    let file_index_html = String::from_utf8(file_index_html).expect("Bytes should be valid utf8");
+    // let file_index_html = bytes::Bytes::from(file_index_html);
+    let file_index_js = tokio::fs::read("frontend/index.js")
+        .await
+        .expect("failed to read file");
+    let file_index_js = bytes::Bytes::from(file_index_js);
+    let file_styles_css = tokio::fs::read("frontend/styles.css")
+        .await
+        .expect("failed to read file");
+    let file_styles_css = bytes::Bytes::from(file_styles_css);
+
+    let file_student_js = tokio::fs::read("frontend/student.js")
+        .await
+        .expect("failed to read file");
+    let file_student_js = bytes::Bytes::from(file_student_js);
+
+
+    let file_ta_html = tokio::fs::read("frontend/ta.html")
+        .await
+        .expect("failed to read file");
+    let file_ta_html = bytes::Bytes::from(file_ta_html);
+
+    let file_admin_html = tokio::fs::read("frontend/admin.html")
+        .await
+        .expect("failed to read file");
+    let file_admin_html = String::from_utf8(file_admin_html).expect("Bytes should be valid utf8");
+    // let file_admin_html = bytes::Bytes::from(file_admin_html);
+    let file_admin_js = tokio::fs::read("frontend/admin.js")
+        .await
+        .expect("failed to read file");
+    let file_admin_js = bytes::Bytes::from(file_admin_js);
+
+    let file_rooms_sahara_html = tokio::fs::read("frontend/rooms/sahara.html")
+        .await
+        .expect("failed to read file");
+    let file_rooms_sahara_html = String::from_utf8(file_rooms_sahara_html).expect("Bytes should be valid utf8");
+
+    let sahara_student_page = file_index_html.replace("%%ROOM%%", file_rooms_sahara_html.as_str());
+    let sahara_student_page = bytes::Bytes::from(sahara_student_page);
+
+
+    let sahara_admin_page = file_admin_html.replace("%%ROOM%%", file_rooms_sahara_html.as_str());
+    let sahara_admin_page = bytes::Bytes::from(sahara_admin_page);
+
+    let file_rooms_sahara_css = tokio::fs::read("frontend/rooms/sahara.css")
+        .await
+        .expect("failed to read file");
+    let file_rooms_sahara_css = bytes::Bytes::from(file_rooms_sahara_css);
+
+    println!("Starting webserver.....");
+
+
+    // let index = serve_page(file_index_html, warp::path!(), "text/html");
+    let index_js = serve_page(file_index_js, warp::path!("index.js"), "application/javascript");
+    let student_js = serve_page(file_student_js, warp::path!("student.js"), "application/javascript");
+    let styles = serve_page(file_styles_css, warp::path!("styles.css"), "text/css");
+    let ta = serve_page(file_ta_html, warp::path!("ta"), "text,html");
+    // let admin = serve_admin_page(file_admin_html, warp::path!("admin"), "text/html");
+    let admin_js = serve_admin_page(file_admin_js, warp::path!("admin.js"), "application/javascript");
+    let rooms_sahara = serve_page(sahara_student_page, warp::path!("rooms" / "sahara"), "text/html");
+    let admin_rooms_sahara = serve_admin_page(sahara_admin_page, warp::path!("admin" / "rooms" / "sahara"), "text/html");
+    let rooms_sahara_css = serve_page(file_rooms_sahara_css, warp::path!("rooms" / "sahara.css"), "text/css");
+
+    let index = warp::path!()
+        .and(warp::get())
+        .map(|| {
+            warp::redirect::temporary(
+                warp::http::Uri::from_static("/rooms/sahara")
+            )
+        });
+    let admin = warp::path!("admin")
+        .and(warp::get())
+        .map(|| {
+            warp::redirect::temporary(
+                warp::http::Uri::from_static("/admin/rooms/sahara")
+            )
+        });
+
+    let favicon = warp::path!("favicons" / String)
+        .and(warp::get())
+        .and_then(|
+            name: String,
+        | async move {
+            if name.contains('/') || name.contains('\\') || name.contains("..") {
+                return Err(warp::reject::not_found());
+            }
+            let ficon = tokio::fs::read(format!("frontend/favicons/{}", name))
+                .await
+                .expect("failed to read file");
+            let ficon = bytes::Bytes::from(ficon);
+            let mut response = warp::reply::Response::new(ficon.into());
+            if name == "0.gif"{
+                response.headers_mut().insert(
+                    CONTENT_TYPE,
+                     HeaderValue::from_static("img/gif"),
+                );
+            } else{
+                response.headers_mut().insert(
+                    CONTENT_TYPE,
+                     HeaderValue::from_static("img/jpg"),
+                );
+            }
+            Ok::<_, warp::Rejection>(response)
+        });
 
     let student_route = warp::path("student")
         .and(warp::ws())
@@ -227,7 +379,7 @@ async fn main() {
             }
         });
 
-    let ta_route = warp::path("ta")
+    let ta_route = warp::path("ta_ws")
         .and(warp::ws())
         .and(warp::header::optional::<String>("cookie"))
         .and(warp::any().map(move || students.clone()))
@@ -268,11 +420,232 @@ async fn main() {
             }
         });
 
-    let routes = student_route.or(ta_route);
+    let post_ta = warp::path!("ta")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("cookie"))
+        .and(warp::body::bytes())
+        .map(|
+            cookie: Option<String>,
+            body: bytes::Bytes
+        |{
+            if let Some(mut cookie_value) = validate_student_cookie(cookie) {
+                let token = match std::str::from_utf8(&body) {
+                    Ok(token) => token.to_string(),
+                    Err(_) => {
+                        return warp::reply::with_status(
+                            "Invalid request",
+                            warp::http::StatusCode::BAD_REQUEST,
+                        )
+                        .into_response();
+                    }
+                };
+                if token != get_ta_token(){
+                    return warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response();
+                }
+                cookie_value.ta = true;
+                let response = warp::reply::json(&Name {
+                    error: String::new(),
+                    data: cookie_value.name.clone(),
+                });
+                set_jwt_cookie(response, cookie_value).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+
+    let api_name_route = warp::path!("api" / "name")
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .map(|
+            cookie: Option<String>,
+        |{
+            if let Some(cookie_value) = validate_ta_cookie(cookie) {
+                let out = Name{
+                    error: "".to_string(),
+                    data: cookie_value.name,
+                };
+                warp::reply::json(
+                    &out
+                ).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+    let post_api_name_route = warp::path!("api" / "name")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("cookie"))
+        .and(warp::body::bytes())
+        .map(|
+            cookie: Option<String>,
+            body: bytes::Bytes
+        |{
+            if let Some(mut cookie_value) = validate_ta_cookie(cookie) {
+                let name = match std::str::from_utf8(&body) {
+                    Ok(name) => name.to_string(),
+                    Err(_) => {
+                        return warp::reply::with_status(
+                            "Invalid request",
+                            warp::http::StatusCode::BAD_REQUEST,
+                        )
+                        .into_response();
+                    }
+                };
+                cookie_value.name = name;
+                let response = warp::reply::json(&Name {
+                    error: String::new(),
+                    data: cookie_value.name.clone(),
+                });
+                set_jwt_cookie(response, cookie_value).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+    let api_table_number_route = warp::path!("api" / "table_number")
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .map(|
+            cookie: Option<String>,
+        |{
+            if let Some(cookie_value) = validate_student_cookie(cookie) {
+                let out = TableNumber{
+                    error: "".to_string(),
+                    data: cookie_value.table_number,
+                };
+                warp::reply::json(
+                    &out
+                ).into_response()
+            } else {
+                println!("No some cookie value");
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+    let post_api_table_number_route = warp::path!("api" / "table_number")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("cookie"))
+        .and(warp::body::bytes())
+        .map(|
+            cookie: Option<String>,
+            body: bytes::Bytes
+        |{
+            if let Some(mut cookie_value) = validate_student_cookie(cookie) {
+                let table_number = match std::str::from_utf8(&body) {
+                    Ok(table_number) => table_number.parse::<usize>().unwrap(),
+                    Err(_) => {
+                        return warp::reply::with_status(
+                            "Invalid request",
+                            warp::http::StatusCode::BAD_REQUEST,
+                        )
+                        .into_response();
+                    }
+                };
+                if table_number >= TABLE_NUMBER{
+                    return warp::reply::with_status(
+                        "Invalid number",
+                        warp::http::StatusCode::BAD_REQUEST,
+                    )
+                    .into_response();
+                }
+                cookie_value.table_number = table_number;
+                let response = warp::reply::json(&TableNumber {
+                    error: String::new(),
+                    data: cookie_value.table_number,
+                });
+                set_jwt_cookie(response, cookie_value).into_response()
+            } else {
+                println!("No some cookie value");
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+
+    let routes = index
+        .or(index_js)
+        .or(student_js)
+        .or(styles)
+        .or(admin)
+        .or(admin_js)
+        .or(rooms_sahara)
+        .or(admin_rooms_sahara)
+        .or(rooms_sahara_css)
+        .or(ta)
+        .or(post_ta)
+        .or(student_route)
+        .or(ta_route)
+        .or(api_name_route)
+        .or(post_api_name_route)
+        .or(api_table_number_route)
+        .or(post_api_table_number_route)
+        .or(favicon)
+        .with(warp::log("http"));
 
     warp::serve(routes)
         .run((IP, PORT))
         .await
+}
+
+fn serve_page<F>(
+    file: bytes::Bytes,
+    path: F,
+    content_type: &'static str,
+) -> impl Filter<
+    Extract = (warp::reply::Response,),
+    Error = warp::Rejection,
+> + Clone
+where
+    F: Filter<Extract = (), Error = warp::Rejection> + Clone,
+{
+    path
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .map(move |
+            cookie: Option<String>,
+        |{
+            let mut response = warp::reply::Response::new(file.clone().into());
+            response.headers_mut().insert(
+                CONTENT_TYPE,
+                 HeaderValue::from_static(content_type),
+            );
+            if let Some(cookie_value) = validate_student_cookie(cookie) {
+                set_jwt_cookie(response, cookie_value).into_response()
+            } else {
+                let cookie_value = default_user();
+                set_jwt_cookie(response, cookie_value).into_response()
+            }
+        })
+}
+
+fn serve_admin_page<F>(
+    file: bytes::Bytes,
+    path: F,
+    content_type: &'static str,
+) -> impl Filter<
+    Extract = (warp::reply::Response,),
+    Error = warp::Rejection,
+> + Clone
+where
+    F: Filter<Extract = (), Error = warp::Rejection> + Clone,
+{
+    path
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .map(move |
+            cookie: Option<String>,
+        |{
+            let mut response = warp::reply::Response::new(file.clone().into());
+            response.headers_mut().insert(
+                CONTENT_TYPE,
+                 HeaderValue::from_static(content_type),
+            );
+            if let Some(cookie_value) = validate_ta_cookie(cookie) {
+                set_jwt_cookie(response, cookie_value).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        })
 }
 
 
@@ -296,7 +669,7 @@ async fn handle_student_websocket(
         // if new socket already exists then shut that down and create new
         let mut students_lock = students.lock().await;
         if let Some(old_msg_tx) = &students_lock[cookie.table_number as usize]{
-            let out = Output{
+            let out = WebsoccketMessage{
                 error: "Someone else looking at your spot".to_string(),
                 message_type: OutType::Error,
                 data: "".to_string()
@@ -322,7 +695,7 @@ async fn handle_student_websocket(
                                 // add "leave" command
                                 // check if token is the same as the one that joined the queue
                                 _ => tx.send(WarpMessage::text(serde_json::to_string(
-                                    &Output{
+                                    &WebsoccketMessage{
                                         error: "Invalid command".to_string(),
                                         message_type: OutType::Error,
                                         data: "".to_string()
@@ -376,7 +749,7 @@ async fn leave_queue(
         }
     }
     if !r {
-        let out = Output{
+        let out = WebsoccketMessage{
             error: "Not in queue or not owner of queue spot".to_string(),
             message_type: OutType::Error,
             data: "".to_string()
@@ -406,7 +779,7 @@ async fn join_queue(
         if let QueueState::N = queue_lock[table_number as usize]{
 
         }else {
-            let out = Output{
+            let out = WebsoccketMessage{
                 error: "Allredy in queue".to_string(),
                 message_type: OutType::Error,
                 data: "".to_string()
@@ -449,7 +822,7 @@ async fn join_queue(
         }
         *q_tail_lock = Some(table_number as u32);
     }
-    let out = Output{
+    let out = WebsoccketMessage{
         error: "".to_string(),
         message_type: OutType::Index,
         data: value.to_string()
@@ -464,7 +837,7 @@ async fn join_queue(
 
         let queue = build_queue(queue_lock, q_head_lock, h_head_lock);
         ta_lock.retain(|ta| {
-            let out = Output{
+            let out = WebsoccketMessage{
                 error: "".to_string(),
                 message_type: OutType::Queue,
                 data: (&queue).to_string()
@@ -484,7 +857,7 @@ async fn poll_queue(
     let queue_lock = queue.lock().await;
     if let QueueState::Q(q) = &queue_lock[table_number as usize]{
         let data = format!("{}", q.value);
-        let out = Output{
+        let out = WebsoccketMessage{
             error: "".to_string(),
             message_type: OutType::Index,
             data
@@ -492,14 +865,14 @@ async fn poll_queue(
         tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     } else if let QueueState::H(h) = &queue_lock[table_number as usize]{
         let data = format!("Getting help from {}", h.helped_by);
-        let out = Output{
+        let out = WebsoccketMessage{
             error: "".to_string(),
             message_type: OutType::Helping,
             data
         };
         tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     } else{
-        let out = Output{
+        let out = WebsoccketMessage{
             error: "".to_string(),
             message_type: OutType::NotQueue,
             data: "Not in queue".to_string()
@@ -541,7 +914,7 @@ async fn handle_ta_websocket(
                                 "get_queue" => get_queue(&mut tx, &queue, &q_head, &h_head).await,
                                 "set_name" => set_name(&mut tx, command, &mut name).await,
                                 _ => tx.send(WarpMessage::text(serde_json::to_string(
-                                    &Output{
+                                    &WebsoccketMessage{
                                         error: "Invalid command".to_string(),
                                         message_type: OutType::Error,
                                         data: "".to_string()
@@ -588,7 +961,7 @@ async fn help_student(
 
         match queue_lock[table_number as usize] {
             QueueState::N => {
-                let out = Output {
+                let out = WebsoccketMessage {
                     error: "Student not in queue".to_string(),
                     message_type: OutType::Error,
                     data: "".to_string(),
@@ -597,7 +970,7 @@ async fn help_student(
                 return;
             }
             QueueState::H(_) => {
-                let out = Output {
+                let out = WebsoccketMessage {
                     error: "Student already getting help".to_string(),
                     message_type: OutType::Error,
                     data: "".to_string(),
@@ -641,7 +1014,7 @@ async fn help_student(
                         itr_next_idx = q_next.next;
                         if let Some(next_tx) = &student_lock[qi_next as usize]{
                             let data = format!("{}", q_next.value);
-                            let out = Output{
+                            let out = WebsoccketMessage{
                                 error: "".to_string(),
                                 message_type: OutType::Index,
                                 data
@@ -680,7 +1053,7 @@ async fn help_student(
     }
 
     let data = format!("Now helping {}", table_number);
-    let out = Output {
+    let out = WebsoccketMessage {
         error: "".to_string(),
         message_type: OutType::Info,
         data
@@ -696,7 +1069,7 @@ async fn help_student(
 
         let queue = build_queue(queue_lock, q_head_lock, h_head_lock);
         ta_lock.retain(|ta| {
-            let out = Output{
+            let out = WebsoccketMessage{
                 error: "".to_string(),
                 message_type: OutType::Queue,
                 data: (&queue).to_string()
@@ -706,7 +1079,7 @@ async fn help_student(
         });
         if let Some(helped_tx) = &student_lock[table_number as usize]{
             let data = format!("Getting help from {}", name);
-            let out = Output{
+            let out = WebsoccketMessage{
                 error: "".to_string(),
                 message_type: OutType::Helping,
                 data
@@ -738,7 +1111,7 @@ async fn remove_student(
 
         match queue_lock[table_number as usize] {
             QueueState::N => {
-                let out = Output {
+                let out = WebsoccketMessage {
                     error: "Student not in queue".to_string(),
                     message_type: OutType::Error,
                     data: "".to_string(),
@@ -776,14 +1149,14 @@ async fn remove_student(
                 queue_lock[table_number as usize] = QueueState::N;
 
                 let data = format!("Removing student {}", table_number);
-                let out = Output {
+                let out = WebsoccketMessage {
                     error: "".to_string(),
                     message_type: OutType::Info,
                     data,
                 };
                 tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
                 if let Some(removed_tx) = &student_lock[table_number as usize]{
-                    let out = Output{
+                    let out = WebsoccketMessage{
                         error: "".to_string(),
                         message_type: OutType::NotQueue,
                         data: "Removed from queue".to_string()
@@ -828,7 +1201,7 @@ async fn remove_student(
                         itr_next_idx = q_next.next;
                         if let Some(next_tx) = &student_lock[qi_next as usize]{
                             let data = format!("{}", q_next.value);
-                            let out = Output{
+                            let out = WebsoccketMessage{
                                 error: "".to_string(),
                                 message_type: OutType::Index,
                                 data
@@ -844,14 +1217,14 @@ async fn remove_student(
                 queue_lock[table_number as usize] = QueueState::N;
 
                 let data = format!("Removing student {}", table_number);
-                let out = Output {
+                let out = WebsoccketMessage {
                     error: "".to_string(),
                     message_type: OutType::Info,
                     data,
                 };
                 tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
                 if let Some(removed_tx) = &student_lock[table_number as usize]{
-                    let out = Output{
+                    let out = WebsoccketMessage{
                         error: "".to_string(),
                         message_type: OutType::NotQueue,
                         data: "Not in queue".to_string()
@@ -872,7 +1245,7 @@ async fn remove_student(
 
         let queue = build_queue(queue_lock, q_head_lock, h_head_lock);
         ta_lock.retain(|ta| {
-            let out = Output{
+            let out = WebsoccketMessage{
                 error: "".to_string(),
                 message_type: OutType::Queue,
                 data: (&queue).to_string()
@@ -894,7 +1267,7 @@ async fn get_queue(
     let q_head_lock = q_head.lock().await;
     let h_head_lock = h_head.lock().await;
     let data = build_queue(queue_lock, q_head_lock, h_head_lock);
-    let out = Output {
+    let out = WebsoccketMessage {
         error: "".to_string(),
         message_type: OutType::Queue,
         data
@@ -909,13 +1282,24 @@ async fn set_name<'a>(
     name: &mut String,
 ){
     *name = command.value.to_string();
-    let out = Output {
+    let out = WebsoccketMessage {
         error: "".to_string(),
-        message_type: OutType::Queue,
+        message_type: OutType::Info,
         data: name.clone()
     };
 
     tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
+}
+
+fn default_user() -> TokenData{
+    TokenData{
+        ta: false,
+        helped_by: "".to_string(),
+        name: "Teaching assistant".to_string(),
+        table_number: 0,
+        task: "".to_string(),
+        id: rand::random::<u128>(),
+    }
 }
 
 fn build_queue(
