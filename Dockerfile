@@ -31,6 +31,7 @@ WORKDIR /app
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /app/target/release/WSServer /app/WSServer
+COPY frontend /app/frontend
 
 # Expose the necessary port for the warp server
 EXPOSE 3030

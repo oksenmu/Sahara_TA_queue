@@ -1,14 +1,6 @@
 services:
-  htmlserver:
-    build: ./HTMLServer
-    env_file: .env
-    ports:
-      - "27889:1041"
-    depends_on:
-      - wsserver
-
   wsserver:
-    build: ./WSServer
+    build: .
     env_file: .env
     ports:
-      - "27890:3030"
+      - "27889:3030"
