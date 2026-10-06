@@ -675,8 +675,14 @@ async fn handle_student_websocket(
                 data: "".to_string()
             };
             let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            old_msg_tx.send(ThreadCommand::Send(data));
-            old_msg_tx.send(ThreadCommand::Shut);
+            let result = old_msg_tx.send(ThreadCommand::Send(data));
+            if let Err(err) = result{
+                println!("Failed to send websocket message: {}", err)
+            }
+            let result = old_msg_tx.send(ThreadCommand::Shut);
+            if let Err(err) = result{
+                println!("Failed to send websocket message: {}", err)
+            }
         }
         students_lock[table_number as usize] = Option::Some(msg_tx.clone());
     }
@@ -754,7 +760,10 @@ async fn leave_queue(
             message_type: OutType::Error,
             data: "".to_string()
         };
-        tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
     }
 }
 
@@ -784,7 +793,10 @@ async fn join_queue(
                 message_type: OutType::Error,
                 data: "".to_string()
             };
-            tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+            let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+            if let Err(err) = result{
+                println!("Failed to send websocket message: {}", err)
+            }
             return;
         }
         if let Some(qt) = *q_tail_lock  {
@@ -828,7 +840,10 @@ async fn join_queue(
         data: value.to_string()
     };
 
-    tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    if let Err(err) = result{
+        println!("Failed to send websocket message: {}", err)
+    }
     {
         let mut ta_lock = teaching_assistants.lock().await;
         let queue_lock = queue.lock().await;
@@ -862,7 +877,10 @@ async fn poll_queue(
             message_type: OutType::Index,
             data
         };
-        tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
     } else if let QueueState::H(h) = &queue_lock[table_number as usize]{
         let data = format!("Getting help from {}", h.helped_by);
         let out = WebsoccketMessage{
@@ -870,15 +888,24 @@ async fn poll_queue(
             message_type: OutType::Helping,
             data
         };
-        tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
     } else{
         let out = WebsoccketMessage{
             error: "".to_string(),
             message_type: OutType::NotQueue,
             data: "Not in queue".to_string()
         };
-        tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
-        msg_tx.send(ThreadCommand::Shut);
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
+        let result = msg_tx.send(ThreadCommand::Shut);
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
     }
 }
 
@@ -1020,7 +1047,10 @@ async fn help_student(
                                 data
                             };
                             let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                            next_tx.send(ThreadCommand::Send(message));
+                            let result = next_tx.send(ThreadCommand::Send(message));
+                            if let Err(err) = result{
+                                println!("Failed to send websocket message: {}", err)
+                            }
                         }
                     } else{
                         panic!("Error in linked list implementation")
@@ -1085,7 +1115,10 @@ async fn help_student(
                 data
             };
             let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            helped_tx.send(ThreadCommand::Send(data));
+            let result = helped_tx.send(ThreadCommand::Send(data));
+            if let Err(err) = result{
+                println!("Failed to send websocket message: {}", err)
+            }
         }
     }
 }
@@ -1162,8 +1195,14 @@ async fn remove_student(
                         data: "Removed from queue".to_string()
                     };
                     let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                    removed_tx.send(ThreadCommand::Send(data));
-                    removed_tx.send(ThreadCommand::Shut);
+                    let result = removed_tx.send(ThreadCommand::Send(data));
+                    if let Err(err) = result{
+                        println!("Failed to send websocket message: {}", err)
+                    }
+                    let result = removed_tx.send(ThreadCommand::Shut);
+                    if let Err(err) = result{
+                        println!("Failed to send websocket message: {}", err)
+                    }
 
                 }
             }
@@ -1207,7 +1246,10 @@ async fn remove_student(
                                 data
                             };
                             let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                            next_tx.send(ThreadCommand::Send(message));
+                            let result = next_tx.send(ThreadCommand::Send(message));
+                            if let Err(err) = result{
+                                println!("Failed to send websocket message: {}", err)
+                            }
                         }
                     } else{
                         panic!("Error in linked list implementation")
@@ -1230,8 +1272,14 @@ async fn remove_student(
                         data: "Not in queue".to_string()
                     };
                     let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                    removed_tx.send(ThreadCommand::Send(data));
-                    removed_tx.send(ThreadCommand::Shut);
+                    let result = removed_tx.send(ThreadCommand::Send(data));
+                    if let Err(err) = result{
+                        println!("Failed to send websocket message: {}", err)
+                    }
+                    let result = removed_tx.send(ThreadCommand::Shut);
+                    if let Err(err) = result{
+                        println!("Failed to send websocket message: {}", err)
+                    }
 
                 }
             }
