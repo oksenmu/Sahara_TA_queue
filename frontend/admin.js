@@ -1,4 +1,5 @@
 TABLE_NUMBER = 44;
+let queue = []
 
 function removeUser(id) {
     data = {command: "remove", argument: parseInt(id), "value": ""}
@@ -159,7 +160,17 @@ const socket = new WebSocket('/ta_ws');
 socket.onmessage = function (event) {
     const data = JSON.parse(event.data);
     if (data["message_type"] == "Queue"){
-        const queue = JSON.parse(data["data"])
+        let new_queue = JSON.parse(data["data"])
+        if (new_queue.map(e=>e.id).filter(e=>!queue.map(f=>f.id).includes(e)).length > 0){
+            console.log("Notif sent")
+            const joined = new Notification("Student joined the queue");
+            document.addEventListener("visibilitychange", () => {
+              if (document.visibilityState === "visible") {
+                joined.close();
+              }
+            });
+        }
+        queue = new_queue
         make_queue(queue)
         console.log(queue)
     }
@@ -180,6 +191,10 @@ document.getElementById('update_name').addEventListener('click', () => {
 
 document.getElementById('name').addEventListener('keypress', (event) => {
     if(event.key === "Enter") sendUpdateName()
+});
+
+Notification.requestPermission().then((result) => {
+  console.log(result);
 });
 
 
