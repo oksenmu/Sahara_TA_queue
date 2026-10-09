@@ -45,7 +45,7 @@ document.querySelectorAll(".table").forEach((table) => {
         fetch("/api/table_number", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: table.getAttribute("data-table-number"),
+            body: JSON.stringify({table_number: parseInt(table.getAttribute("data-table-number")), task:document.getElementById("oppgave").value})
         })
             .then((res) => res.json())
             .then((data) => {
@@ -78,7 +78,22 @@ startSocket("poll");
 
 function requestHelp() {
     if (chosen != 0) {
-        startSocket("join");
+        fetch("/api/task", {
+            method: "POST",
+            headers: { "Content-Type": "application/text" },
+            body: document.getElementById("oppgave").value,
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data["error"] != "") {
+                    document.getElementById("warning").innerText = data["error"];
+                    setTimeout(() => {
+                        document.getElementById("warning").innerHTML = "";
+                    }, 7000);
+                } else {
+                    startSocket("join");
+                }
+            });
     } else {
         document.getElementById("warning").innerText = "Please select your table";
         setTimeout(() => {

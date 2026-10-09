@@ -57,6 +57,12 @@ struct WebsoccketMessage {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+struct TableNumberUserMessage {
+    table_number: u32,
+    task: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct Name {
     error: String,
     data: String,
@@ -424,6 +430,55 @@ async fn main() {
         });
 
 
+    let api_task_route = warp::path!("api" / "task")
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .map(|
+            cookie: Option<String>,
+        |{
+            if let Some(cookie_value) = validate_student_cookie(cookie) {
+                let out = Name{
+                    error: "".to_string(),
+                    data: cookie_value.task,
+                };
+                warp::reply::json(
+                    &out
+                ).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+    let post_api_task_route = warp::path!("api" / "task")
+        .and(warp::post())
+        .and(warp::header::optional::<String>("cookie"))
+        .and(warp::body::bytes())
+        .map(|
+            cookie: Option<String>,
+            body: bytes::Bytes
+        |{
+            if let Some(mut cookie_value) = validate_student_cookie(cookie) {
+                let task = match std::str::from_utf8(&body) {
+                    Ok(task) => task.to_string(),
+                    Err(_) => {
+                        return warp::reply::with_status(
+                            "Invalid request",
+                            warp::http::StatusCode::BAD_REQUEST,
+                        )
+                        .into_response();
+                    }
+                };
+                cookie_value.task = task;
+                let response = warp::reply::json(&Name {
+                    error: String::new(),
+                    data: cookie_value.task.clone(),
+                });
+                set_jwt_cookie(response, cookie_value).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
     let api_name_route = warp::path!("api" / "name")
         .and(warp::get())
         .and(warp::header::optional::<String>("cookie"))
@@ -496,23 +551,14 @@ async fn main() {
     let post_api_table_number_route = warp::path!("api" / "table_number")
         .and(warp::post())
         .and(warp::header::optional::<String>("cookie"))
-        .and(warp::body::bytes())
+        .and(warp::body::json::<TableNumberUserMessage>())
         .map(|
             cookie: Option<String>,
-            body: bytes::Bytes
+            message: TableNumberUserMessage
         |{
             if let Some(mut cookie_value) = validate_student_cookie(cookie) {
-                let table_number = match std::str::from_utf8(&body) {
-                    Ok(table_number) => table_number.parse::<u32>().unwrap(),
-                    Err(_) => {
-                        return warp::reply::with_status(
-                            "Invalid request",
-                            warp::http::StatusCode::BAD_REQUEST,
-                        )
-                        .into_response();
-                    }
-                };
-                cookie_value.table_number = table_number;
+                cookie_value.table_number = message.table_number;
+                cookie_value.task = message.task;
                 let response = warp::reply::json(&TableNumber {
                     error: String::new(),
                     data: cookie_value.table_number,
@@ -540,6 +586,8 @@ async fn main() {
         .or(ta_route)
         .or(api_name_route)
         .or(post_api_name_route)
+        .or(api_task_route)
+        .or(post_api_task_route)
         .or(api_table_number_route)
         .or(post_api_table_number_route)
         .or(favicon)
@@ -765,8 +813,17 @@ async fn join_queue(
         if let Err(err) = result{
             println!("Failed to send websocket message: {}", err)
         }
-        release("queue_lock", queue_lock);
-        release("q_head_lock", q_head_lock);
+        let queue = build_queue(queue_lock, q_head_lock);
+        ta_lock.retain(|_, ta| {
+            let out = WebsoccketMessage{
+                error: "".to_string(),
+                message_type: OutType::Queue,
+                data: (&queue).to_string()
+            };
+            let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
+            ta.send(ThreadCommand::Send(message)).is_ok()
+        });
+        release("ta_lock", ta_lock);
         release("q_tail_lock", q_tail_lock);
         return;
     }
