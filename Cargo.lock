@@ -10,6 +10,7 @@ dependencies = [
  "env_logger",
  "futures-util",
  "jsonwebtoken",
+ "log",
  "rand 0.10.3",
  "serde",
  "serde_json",

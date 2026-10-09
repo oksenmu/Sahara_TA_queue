@@ -7,6 +7,7 @@ use futures_util::{StreamExt, SinkExt};
 use tokio::sync::{mpsc, Mutex, MutexGuard};
 use jsonwebtoken::{decode, encode, DecodingKey, Validation, Header, EncodingKey};
 use serde::{Deserialize, Serialize};
+use log::{debug, error, info, trace, warn};
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
@@ -170,12 +171,12 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
                 Option::Some(token_data)
             }
             Err(err) => {
-                println!("Cookie validation failed: {:?}", err);
+                warn!("Cookie validation failed: {:?}", err);
                 None
             },
         }
     } else {
-        println!("No Cookie");
+        warn!("No Cookie");
         None
     }
 }
@@ -194,17 +195,17 @@ fn validate_ta_cookie(cookie: Option<String>) -> Option<TokenData> {
                 if token_data.ta {
                     Option::Some(token_data)
                 } else {
-                    println!("Is not TA");
+                    warn!("Is not TA");
                     None
                 }
             }
             Err(err) => {
-                println!("TA cookie validation failed {:?}", err);
+                warn!("TA cookie validation failed {:?}", err);
                 None
             },
         }
     } else {
-        println!("No cookie");
+        warn!("No cookie");
         None
     }
 }
@@ -275,7 +276,7 @@ async fn main() {
         .expect("failed to read file");
     let file_rooms_sahara_css = bytes::Bytes::from(file_rooms_sahara_css);
 
-    println!("Starting webserver.....");
+    info!("Starting webserver.....");
 
 
     // let index = serve_page(file_index_html, warp::path!(), "text/html");
@@ -359,7 +360,7 @@ async fn main() {
                     warp::http::StatusCode::SWITCHING_PROTOCOLS
                 ).into_response()
             } else {
-                println!("No some cookie value");
+                warn!("No some cookie value");
                 warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
             }
         });
@@ -543,7 +544,7 @@ async fn main() {
                     &out
                 ).into_response()
             } else {
-                println!("No some cookie value");
+                warn!("No some cookie value");
                 warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
             }
         });
@@ -565,7 +566,7 @@ async fn main() {
                 });
                 set_jwt_cookie(response, cookie_value).into_response()
             } else {
-                println!("No some cookie value");
+                warn!("No some cookie value");
                 warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
             }
         });
@@ -668,7 +669,7 @@ async fn handle_student_websocket(
     q_tail: QueueIndex,
     cookie: TokenData
 ){
-    println!("Handeling Student WebSocket");
+    debug!("Handeling Student WebSocket");
     let (mut tx, mut rx) = ws.split();
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let table_number = cookie.table_number;
@@ -681,7 +682,7 @@ async fn handle_student_websocket(
         if let Some(old_msg_tx) = queue_element.socket.take(){
             let result = old_msg_tx.send(ThreadCommand::Shut);
             if let Err(err) = result{
-                println!("Failed to send websocket message: {}", err)
+                error!("Failed to send websocket message: {}", err)
             }
         }
         queue_element.task = task.clone();
@@ -725,7 +726,7 @@ async fn handle_student_websocket(
                         } else{
                             let result = tx.send(WarpMessage::text("Not text")).await;
                             if let Err(err) = result{
-                                println!("Failed to send websocket message: {}", err)
+                                error!("Failed to send websocket message: {}", err)
                             }
                         }
                     }
@@ -733,7 +734,7 @@ async fn handle_student_websocket(
             }
             Some(info) = msg_rx.recv() => {
                 if let ThreadCommand::Shut = info{
-                    println!("Closeing connection");
+                    debug!("Closeing connection");
                     let mut queue_lock = lock("queue", &queue).await;
 
                     let queue_element = queue_lock.get_mut(&cookie.id);
@@ -764,7 +765,7 @@ async fn leave_queue(
     q_tail: &QueueIndex,
     id: u32
 ) {
-    println!("Leave queue deteced");
+    debug!("Leave queue deteced");
     let queue_lock = lock("queue", &queue).await;
 
     if let Some(_) = queue_lock.get(&id){
@@ -778,7 +779,7 @@ async fn leave_queue(
         };
         let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         release("queue_lock", queue_lock);
     }
@@ -794,7 +795,7 @@ async fn join_queue(
     // take in token
 ){
     let value: i32;
-    println!("Join queue deteced");
+    debug!("Join queue deteced");
     let mut queue_lock = lock("queue", &queue).await;
     let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
     let mut q_head_lock = lock("q_head", &q_head).await;
@@ -811,7 +812,7 @@ async fn join_queue(
         };
         let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         let queue = build_queue(queue_lock, q_head_lock);
         ta_lock.retain(|_, ta| {
@@ -850,7 +851,7 @@ async fn join_queue(
 
     let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     if let Err(err) = result{
-        println!("Failed to send websocket message: {}", err)
+        error!("Failed to send websocket message: {}", err)
     }
 
 
@@ -877,7 +878,7 @@ async fn poll_queue(
     id: u32
 ){
     //Should send the new queue to TAs if allredy in queue to update table
-    println!("Polling detected");
+    debug!("Polling detected");
     let queue_lock = lock("queue", &queue).await;
     let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
     let q_head_lock = lock("q_head", &q_head).await;
@@ -891,11 +892,11 @@ async fn poll_queue(
         };
         let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         let result = msg_tx.send(ThreadCommand::Shut);
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         release("queue_lock", queue_lock);
         return;
@@ -918,7 +919,7 @@ async fn poll_queue(
     }
     let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     if let Err(err) = result{
-        println!("Failed to send websocket message: {}", err)
+        error!("Failed to send websocket message: {}", err)
     }
 
     let queue = build_queue(queue_lock, q_head_lock);
@@ -942,7 +943,7 @@ async fn handle_ta_websocket(
     q_tail: QueueIndex,
     cookie: TokenData
 ){
-    println!("Handeling TA websockets");
+    debug!("Handeling TA websockets");
     let (mut tx, mut rx) = ws.split();
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let mut name = cookie.name;
@@ -977,7 +978,7 @@ async fn handle_ta_websocket(
                         else{
                             let result = tx.send(WarpMessage::text("Not text")).await;
                             if let Err(err) = result{
-                                println!("Failed to send websocket message: {}", err)
+                                error!("Failed to send websocket message: {}", err)
                             }
                         }
                     }
@@ -1007,7 +1008,7 @@ async fn help_student(
     name: &String,
     id: u32,
 ){
-    println!("Help students deteced");
+    debug!("Help students deteced");
     let mut queue_lock = lock("queue", &queue).await;
     let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
     let mut q_head_lock = lock("q_head", &q_head).await;
@@ -1024,7 +1025,7 @@ async fn help_student(
         };
         let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         release("q_tail_lock", q_tail_lock);
         release("ta_lock", ta_lock);
@@ -1042,7 +1043,7 @@ async fn help_student(
         };
         let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         release("q_tail_lock", q_tail_lock);
         release("ta_lock", ta_lock);
@@ -1070,7 +1071,7 @@ async fn help_student(
         let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
         let result = helped_tx.send(ThreadCommand::Send(data));
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
     }
 
@@ -1118,7 +1119,7 @@ async fn help_student(
             let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
             let result = tx.send(ThreadCommand::Send(message));
             if let Err(err) = result{
-                println!("Failed to send websocket message: {}", err)
+                error!("Failed to send websocket message: {}", err)
             }
 
         }
@@ -1135,7 +1136,7 @@ async fn help_student(
 
     let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     if let Err(err) = result{
-        println!("Failed to send websocket message: {}", err)
+        error!("Failed to send websocket message: {}", err)
     }
 
     //Send the uppdated queue to the TAs
@@ -1161,7 +1162,7 @@ async fn remove_student(
     q_tail: &QueueIndex,
     id: u32
 ){
-    println!("Remove student deteced");
+    debug!("Remove student deteced");
     let mut queue_lock = lock("queue", &queue).await;
     let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
     let mut q_head_lock = lock("q_head", &q_head).await;
@@ -1178,7 +1179,7 @@ async fn remove_student(
         };
         let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         print!("Droped lock");
         return;
@@ -1207,7 +1208,7 @@ async fn remove_student(
     };
     let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     if let Err(err) = result{
-        println!("Failed to send websocket message: {}", err)
+        error!("Failed to send websocket message: {}", err)
     }
     if let Some(ref tx)  = queue_element.socket{
         let out = WebsoccketMessage{
@@ -1218,11 +1219,11 @@ async fn remove_student(
         let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
         let result = tx.send(ThreadCommand::Send(data));
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
         let result = tx.send(ThreadCommand::Shut);
         if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
+            error!("Failed to send websocket message: {}", err)
         }
     }
 
@@ -1256,7 +1257,7 @@ async fn remove_student(
             let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
             let result = tx.send(ThreadCommand::Send(message));
             if let Err(err) = result{
-                println!("Failed to send websocket message: {}", err)
+                error!("Failed to send websocket message: {}", err)
             }
 
         }
@@ -1283,7 +1284,7 @@ async fn get_queue(
     queue: &Queue,
     q_head: &QueueIndex,
 ){
-    println!("Get queue deteced");
+    debug!("Get queue deteced");
     let queue_lock = lock("queue", &queue).await;
     let q_head_lock = lock("q_head", &q_head).await;
 
@@ -1296,7 +1297,7 @@ async fn get_queue(
 
     let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     if let Err(err) = result{
-        println!("Failed to send websocket message: {}", err)
+        error!("Failed to send websocket message: {}", err)
     }
 }
 
@@ -1314,19 +1315,19 @@ async fn set_name<'a>(
 
     let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
     if let Err(err) = result{
-        println!("Failed to send websocket message: {}", err)
+        error!("Failed to send websocket message: {}", err)
     }
 }
 
 async fn lock<'a, T>(name: &str, mutex: &'a Arc<Mutex<T>>) -> MutexGuard<'a, T>{
-    println!("Aquireing {name} {:p} lock", mutex);
+    trace!("Aquireing {name} {:p} lock", mutex);
     let out = mutex.lock().await;
-    println!("Aquired {name} lock {:p}", mutex);
+    trace!("Aquired {name} lock {:p}", mutex);
     out
 }
 
 fn release<'a, T>(name: &str, _mutex_guard: MutexGuard<'a, T>){
-    println!("Released {name}");
+    trace!("Released {name}");
 }
 
 fn default_user() -> TokenData{
