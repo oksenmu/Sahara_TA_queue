@@ -13,7 +13,7 @@ function helpUser(id) {
 function resetTables(){
     for (let i = 1; i <= TABLE_NUMBER; i++) {
         table = document.getElementById(i)
-        table.classList = ["table"]        
+        table.classList = ["table"]
         table.innerText = ""
     }
 }
@@ -37,7 +37,7 @@ function updateTable(id, index){
 function updateName() {
     fetch("/api/name", {
         method: "GET",
-        headers: {'Content-Type': 'text/plain'}, 
+        headers: {'Content-Type': 'text/plain'},
     }).then(res => 
         res.json()
     ).then(data=>{
@@ -81,8 +81,8 @@ function make_queue(queue){
         for (let i = 0; i < queue.length; i++) {
             data_element = queue[i]
             row = document.createElement("tr")
-            row.id = data_element["table_number"]
-            if(data_element["index"] !== 0){
+            row.id = data_element["id"]
+            if(data_element["index"] > 0){
                 tbody.appendChild(row)
                 index = i+1-offset
             }

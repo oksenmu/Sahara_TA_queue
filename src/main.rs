@@ -9,33 +9,38 @@ use jsonwebtoken::{decode, encode, DecodingKey, Validation, Header, EncodingKey}
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::Arc; use std::env;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::cmp::max;
+use std::env;
 
 // Shared list of connected clients
 
 static IP: std::net::Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 static PORT: u16 = 3030;
-static TABLE_NUMBER: usize = 44;
 
 // legge til token her
 struct QueueElement{
-    value: u32,
+    getting_help: bool,
+    queue_index: Option<i32>,
+    table_number: u32,
     helped_by: String,
     task: String,
-    id: u128,
+    id: u32,
     next: Option<u32>,
-    previous: Option<u32>
+    previous: Option<u32>,
+    socket: Option<mpsc::UnboundedSender<ThreadCommand>>
 }
 
 // Legge til token her?
 #[derive(Debug, Deserialize, Serialize)]
 struct TokenData {
     ta: bool,
-    table_number: usize,
+    table_number: u32,
     name: String,
     task: String,
     helped_by: String,
-    id: u128
+    id: u32
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -60,7 +65,7 @@ struct Name {
 #[derive(Debug, Deserialize, Serialize)]
 struct TableNumber {
     error: String,
-    data: usize,
+    data: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -71,7 +76,7 @@ struct StudentCommand<'a> {
 #[derive(Debug, Deserialize, Serialize)]
 struct TaCommand<'a> {
     command: &'a str,
-    argument: usize,
+    argument: u32,
     value: &'a str
 }
 
@@ -85,20 +90,13 @@ enum OutType{
     Error
 }
 
-enum QueueState{
-    Q(QueueElement),    // I kø
-    H(QueueElement),    // Får hjelp
-    N                   // Ikke i kø
-}
-
 enum ThreadCommand{
     Shut,
     Send(WarpMessage)
 }
 
-type Students = Arc<Mutex<[Option<mpsc::UnboundedSender<ThreadCommand>>; TABLE_NUMBER+1]>>;
-type TAs = Arc<Mutex<Vec<mpsc::UnboundedSender<ThreadCommand>>>>;
-type Queue = Arc<Mutex<[QueueState; TABLE_NUMBER+1]>>;
+type TAs = Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<ThreadCommand>>>>;
+type Queue = Arc<Mutex<HashMap<u32, QueueElement>>>;
 type QueueIndex = Arc<Mutex<Option<u32>>>;
 
 // // Get JWT secret from environment or fallback to default
@@ -163,11 +161,7 @@ fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
         ) {
             Ok(token_data) => {
                 let token_data = token_data.claims.user;
-                if (0..=TABLE_NUMBER).contains(&token_data.table_number) {
-                    Option::Some(token_data)
-                } else {
-                    None
-                }
+                Option::Some(token_data)
             }
             Err(err) => {
                 println!("Cookie validation failed: {:?}", err);
@@ -213,21 +207,15 @@ fn validate_ta_cookie(cookie: Option<String>) -> Option<TokenData> {
 async fn main() {
     env_logger::init();
 
-    let students: Students = Arc::new(Mutex::new(std::array::from_fn(|_| None)));
-    let teaching_assistants: TAs = Arc::new(Mutex::new(Vec::new()));
-    let queue: Queue = Arc::new(Mutex::new(std::array::from_fn(|_| QueueState::N)));
+    let teaching_assistants: TAs = Arc::new(Mutex::new(HashMap::new()));
+    let queue: Queue = Arc::new(Mutex::new(HashMap::new()));
     let q_head: QueueIndex = Arc::new(Mutex::new(Option::None));
     let q_tail: QueueIndex = Arc::new(Mutex::new(Option::None));
-    let h_head: QueueIndex = Arc::new(Mutex::new(Option::None));
-    let h_tail: QueueIndex = Arc::new(Mutex::new(Option::None));
 
-    let students_clone = students.clone();
     let teaching_assistants_clone = teaching_assistants.clone();
     let queue_clone = queue.clone();
     let q_head_clone = q_head.clone();
     let q_tail_clone = q_tail.clone();
-    let h_head_clone = h_head.clone();
-    let h_tail_clone = h_tail.clone();
 
     let file_index_html = tokio::fs::read("frontend/index.html")
         .await
@@ -340,35 +328,26 @@ async fn main() {
     let student_route = warp::path("student")
         .and(warp::ws())
         .and(warp::header::optional::<String>("cookie"))
-        .and(warp::any().map(move || students_clone.clone()))
         .and(warp::any().map(move || teaching_assistants_clone.clone()))
         .and(warp::any().map(move || queue_clone.clone()))
         .and(warp::any().map(move || q_head_clone.clone()))
         .and(warp::any().map(move || q_tail_clone.clone()))
-        .and(warp::any().map(move || h_head_clone.clone()))
-        .and(warp::any().map(move || h_tail_clone.clone()))
         .map(|
             ws: warp::ws::Ws,
             cookie: Option<String>,
-            students: Students,
             teaching_assistants: TAs,
             queue: Queue, 
             q_head: QueueIndex,
             q_tail: QueueIndex,
-            h_head: QueueIndex,
-            h_tail: QueueIndex,
         |{
             if let Some(cookie_value) = validate_student_cookie(cookie) {
                 warp::reply::with_status(
                     ws.on_upgrade(move |socket| handle_student_websocket(
                         socket,
-                        students,
                         teaching_assistants,
                         queue,
-                        q_tail,
                         q_head,
-                        h_head,
-                        h_tail,
+                        q_tail,
                         cookie_value
                     )),
                     warp::http::StatusCode::SWITCHING_PROTOCOLS
@@ -382,35 +361,26 @@ async fn main() {
     let ta_route = warp::path("ta_ws")
         .and(warp::ws())
         .and(warp::header::optional::<String>("cookie"))
-        .and(warp::any().map(move || students.clone()))
         .and(warp::any().map(move || teaching_assistants.clone()))
         .and(warp::any().map(move || queue.clone()))
         .and(warp::any().map(move || q_head.clone()))
         .and(warp::any().map(move || q_tail.clone()))
-        .and(warp::any().map(move || h_head.clone()))
-        .and(warp::any().map(move || h_tail.clone()))
         .map(|
             ws: warp::ws::Ws,
             cookie: Option<String>,
-            students: Students,
             teaching_assistants: TAs,
             queue: Queue, 
             q_head: QueueIndex,
             q_tail: QueueIndex,
-            h_head: QueueIndex,
-            h_tail: QueueIndex,
         |{
             if let Some(cookie_value) = validate_ta_cookie(cookie) {
                 warp::reply::with_status(
                     ws.on_upgrade(move |socket| handle_ta_websocket(
                         socket,
-                        students,
                         teaching_assistants,
                         queue,
-                        q_tail,
                         q_head,
-                        h_head,
-                        h_tail,
+                        q_tail,
                         cookie_value
                     )),
                     warp::http::StatusCode::SWITCHING_PROTOCOLS
@@ -533,7 +503,7 @@ async fn main() {
         |{
             if let Some(mut cookie_value) = validate_student_cookie(cookie) {
                 let table_number = match std::str::from_utf8(&body) {
-                    Ok(table_number) => table_number.parse::<usize>().unwrap(),
+                    Ok(table_number) => table_number.parse::<u32>().unwrap(),
                     Err(_) => {
                         return warp::reply::with_status(
                             "Invalid request",
@@ -542,13 +512,6 @@ async fn main() {
                         .into_response();
                     }
                 };
-                if table_number >= TABLE_NUMBER{
-                    return warp::reply::with_status(
-                        "Invalid number",
-                        warp::http::StatusCode::BAD_REQUEST,
-                    )
-                    .into_response();
-                }
                 cookie_value.table_number = table_number;
                 let response = warp::reply::json(&TableNumber {
                     error: String::new(),
@@ -651,41 +614,46 @@ where
 
 async fn handle_student_websocket(
     ws: warp::ws::WebSocket,
-    students: Students,
     teaching_assistants: TAs,
     queue: Queue,
     q_head: QueueIndex,
     q_tail: QueueIndex,
-    h_head: QueueIndex,
-    h_tail: QueueIndex,
     cookie: TokenData
 ){
+    println!("Handeling Student WebSocket");
     let (mut tx, mut rx) = ws.split();
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let table_number = cookie.table_number;
     let task = cookie.task;
     let id = cookie.id;
-    {
-        // if new socket already exists then shut that down and create new
-        let mut students_lock = students.lock().await;
-        if let Some(old_msg_tx) = &students_lock[cookie.table_number as usize]{
-            let out = WebsoccketMessage{
-                error: "Someone else looking at your spot".to_string(),
-                message_type: OutType::Error,
-                data: "".to_string()
-            };
-            let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            let result = old_msg_tx.send(ThreadCommand::Send(data));
-            if let Err(err) = result{
-                println!("Failed to send websocket message: {}", err)
-            }
+    // if new socket already exists then shut that down and create new
+    let mut queue_lock = lock("queue", &queue).await;
+
+    if let Some(queue_element) = queue_lock.get_mut(&cookie.id){
+        if let Some(old_msg_tx) = queue_element.socket.take(){
             let result = old_msg_tx.send(ThreadCommand::Shut);
             if let Err(err) = result{
                 println!("Failed to send websocket message: {}", err)
             }
         }
-        students_lock[table_number as usize] = Option::Some(msg_tx.clone());
+        queue_element.task = task.clone();
+        queue_element.table_number = table_number;
+        queue_element.socket = Some(msg_tx.clone());
+    }else {
+        let queue_element = QueueElement{
+            getting_help: false,
+            queue_index: None,
+            helped_by: "".to_string(),
+            task: task.clone(),
+            id,
+            table_number,
+            next: None,
+            previous: None,
+            socket: Some(msg_tx.clone()),
+        };
+        queue_lock.insert(id, queue_element);
     }
+    release("queue_lock", queue_lock);
     loop {
         tokio::select! {
             Some(result) = rx.next() => {
@@ -695,11 +663,9 @@ async fn handle_student_websocket(
                         let student_command: Result<StudentCommand, serde_json::Error> = serde_json::from_str(msg_clone.to_str().unwrap());
                         if let Ok(command) = student_command{
                             match command.command {
-                                "poll" => poll_queue(&mut tx, &msg_tx, &queue, table_number).await,
-                                "join" => join_queue(&mut tx, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, table_number, &task, id).await,
-                                "leave" => leave_queue(&mut tx, &students, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, &h_tail, table_number, id).await,
-                                // add "leave" command
-                                // check if token is the same as the one that joined the queue
+                                "poll" => poll_queue(&mut tx, &msg_tx, &teaching_assistants, &queue, &q_head, id).await,
+                                "join" => join_queue(&mut tx, &teaching_assistants, &queue, &q_head, &q_tail, id).await,
+                                "leave" => leave_queue(&mut tx, &teaching_assistants, &queue, &q_head, &q_tail, id).await,
                                 _ => tx.send(WarpMessage::text(serde_json::to_string(
                                     &WebsoccketMessage{
                                         error: "Invalid command".to_string(),
@@ -709,13 +675,29 @@ async fn handle_student_websocket(
                                 ).unwrap())).await.unwrap(),
                             };
                         } else{
-                            tx.send(WarpMessage::text("Not text")).await.unwrap();
+                            let result = tx.send(WarpMessage::text("Not text")).await;
+                            if let Err(err) = result{
+                                println!("Failed to send websocket message: {}", err)
+                            }
                         }
                     }
                 }
             }
             Some(info) = msg_rx.recv() => {
                 if let ThreadCommand::Shut = info{
+                    println!("Closeing connection");
+                    let mut queue_lock = lock("queue", &queue).await;
+
+                    let queue_element = queue_lock.get_mut(&cookie.id);
+                    if queue_element.is_none(){
+                        release("queue_lock", queue_lock);
+                        return;
+                    }
+                    let queue_element = queue_element.unwrap();
+                    if queue_element.queue_index.is_none(){
+                        queue_lock.remove(&id);
+                    }
+                    release("queue_lock", queue_lock);
                     return;
                 }
                 else if let ThreadCommand::Send(data) = info{
@@ -728,35 +710,21 @@ async fn handle_student_websocket(
 
 async fn leave_queue(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
-    students: &Students,
     teaching_assistants: &TAs,
     queue: &Queue,
     q_head: &QueueIndex,
     q_tail: &QueueIndex,
-    h_head: &QueueIndex,
-    h_tail: &QueueIndex,
-    table_number: usize,
-    id: u128
+    id: u32
 ) {
-    let queue_lock = queue.lock().await;
-    
-    let mut r = false;
-    if let QueueState::Q(q) = &queue_lock[table_number as usize]{
-        if q.id == id {
-            drop(queue_lock);
-            remove_student(tx, students, teaching_assistants, queue, q_head, q_tail, h_head, h_tail, table_number).await;
-            r = true;
-        }
-    } else if let QueueState::H(h) = &queue_lock[table_number as usize]{
-        if h.id == id {
-            drop(queue_lock);
-            remove_student(tx, students, teaching_assistants, queue, q_head, q_tail, h_head, h_tail, table_number).await;
-            r = true;
-        }
-    }
-    if !r {
+    println!("Leave queue deteced");
+    let queue_lock = lock("queue", &queue).await;
+
+    if let Some(_) = queue_lock.get(&id){
+        release("queue_lock", queue_lock);
+        remove_student(tx, teaching_assistants, queue, q_head, q_tail, id).await;
+    } else  {
         let out = WebsoccketMessage{
-            error: "Not in queue or not owner of queue spot".to_string(),
+            error: "Not in queue".to_string(),
             message_type: OutType::Error,
             data: "".to_string()
         };
@@ -764,6 +732,7 @@ async fn leave_queue(
         if let Err(err) = result{
             println!("Failed to send websocket message: {}", err)
         }
+        release("queue_lock", queue_lock);
     }
 }
 
@@ -773,67 +742,49 @@ async fn join_queue(
     queue: &Queue,
     q_head: &QueueIndex,
     q_tail: &QueueIndex,
-    h_head: &QueueIndex,
-    table_number: usize,
-    task: &String,
-    id: u128
+    id: u32
     // take in token
 ){
-    let value: u32;
-    {
-        // let ta_lock = teaching_assistants.lock().await;
-        let mut queue_lock = queue.lock().await;
-        let mut q_head_lock = q_head.lock().await;
-        let mut q_tail_lock = q_tail.lock().await;
-        if let QueueState::N = queue_lock[table_number as usize]{
+    let value: i32;
+    println!("Join queue deteced");
+    let mut queue_lock = lock("queue", &queue).await;
+    let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
+    let mut q_head_lock = lock("q_head", &q_head).await;
+    let mut q_tail_lock = lock("q_tail", &q_tail).await;
 
-        }else {
-            let out = WebsoccketMessage{
-                error: "Allredy in queue".to_string(),
-                message_type: OutType::Error,
-                data: "".to_string()
-            };
-            let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
-            if let Err(err) = result{
-                println!("Failed to send websocket message: {}", err)
-            }
-            return;
+
+    let queue_element = queue_lock.get(&id).unwrap();
+
+    if queue_element.queue_index.is_some(){
+        let out = WebsoccketMessage{
+            error: "Allredy in queue".to_string(),
+            message_type: OutType::Error,
+            data: "".to_string()
+        };
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
         }
-        if let Some(qt) = *q_tail_lock  {
-            if let QueueState::Q(q) = &mut queue_lock[qt as usize]{
-                value = q.value+1;
-                q.next = Option::Some(table_number as u32);
-                // add token
-                let qe = QueueElement{
-                    value: q.value+1,
-                    helped_by: "".to_string(),
-                    task: task.to_string(),
-                    id,
-                    next: None,
-                    previous: Some(qt)
-                };
-                queue_lock[table_number as usize] = QueueState::Q(qe)
-            }
-            else {
-                panic!("Big error")
-            }
-        }
-        else{
-            value = 1;
-            // add token
-            let qe = QueueElement{
-                value: 1,
-                helped_by: "".to_string(),
-                task: task.to_string(),
-                id,
-                next: None,
-                previous: None
-            };
-            queue_lock[table_number as usize] = QueueState::Q(qe);
-            *q_head_lock = Some(table_number as u32);
-        }
-        *q_tail_lock = Some(table_number as u32);
+        release("queue_lock", queue_lock);
+        release("q_head_lock", q_head_lock);
+        release("q_tail_lock", q_tail_lock);
+        return;
     }
+    if let Some(qt) = *q_tail_lock  {
+        let tail = queue_lock.get_mut(&qt).unwrap();
+        tail.next = Some(id);
+        value = max(tail.queue_index.unwrap() + 1, 1);
+        let queue_element = queue_lock.get_mut(&id).unwrap();
+        queue_element.queue_index = Some(value);
+        queue_element.previous = Some(qt);
+    }
+    else{
+        value = 1;
+        let queue_element = queue_lock.get_mut(&id).unwrap();
+        queue_element.queue_index = Some(value);
+        *q_head_lock = Some(id);
+    }
+    *q_tail_lock = Some(id);
     let out = WebsoccketMessage{
         error: "".to_string(),
         message_type: OutType::Index,
@@ -844,55 +795,38 @@ async fn join_queue(
     if let Err(err) = result{
         println!("Failed to send websocket message: {}", err)
     }
-    {
-        let mut ta_lock = teaching_assistants.lock().await;
-        let queue_lock = queue.lock().await;
-        let q_head_lock = q_head.lock().await;
-        let h_head_lock = h_head.lock().await;
 
-        let queue = build_queue(queue_lock, q_head_lock, h_head_lock);
-        ta_lock.retain(|ta| {
-            let out = WebsoccketMessage{
-                error: "".to_string(),
-                message_type: OutType::Queue,
-                data: (&queue).to_string()
-            };
-            let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            ta.send(ThreadCommand::Send(message)).is_ok()
-        });
-    }
+
+    let queue = build_queue(queue_lock, q_head_lock);
+    ta_lock.retain(|_, ta| {
+        let out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Queue,
+            data: (&queue).to_string()
+        };
+        let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
+        ta.send(ThreadCommand::Send(message)).is_ok()
+    });
+    release("ta_lock", ta_lock);
+    release("q_tail_lock", q_tail_lock);
 }
 
 async fn poll_queue(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
     msg_tx: &mpsc::UnboundedSender<ThreadCommand>,
+    teaching_assistants: &TAs,
     queue: &Queue,
-    table_number: usize
+    q_head: &QueueIndex,
+    id: u32
 ){
-    let queue_lock = queue.lock().await;
-    if let QueueState::Q(q) = &queue_lock[table_number as usize]{
-        let data = format!("{}", q.value);
-        let out = WebsoccketMessage{
-            error: "".to_string(),
-            message_type: OutType::Index,
-            data
-        };
-        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
-        if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
-        }
-    } else if let QueueState::H(h) = &queue_lock[table_number as usize]{
-        let data = format!("Getting help from {}", h.helped_by);
-        let out = WebsoccketMessage{
-            error: "".to_string(),
-            message_type: OutType::Helping,
-            data
-        };
-        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
-        if let Err(err) = result{
-            println!("Failed to send websocket message: {}", err)
-        }
-    } else{
+    //Should send the new queue to TAs if allredy in queue to update table
+    println!("Polling detected");
+    let queue_lock = lock("queue", &queue).await;
+    let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
+    let q_head_lock = lock("q_head", &q_head).await;
+
+    let queue_element = queue_lock.get(&id).unwrap();
+    if queue_element.queue_index == None{
         let out = WebsoccketMessage{
             error: "".to_string(),
             message_type: OutType::NotQueue,
@@ -906,26 +840,60 @@ async fn poll_queue(
         if let Err(err) = result{
             println!("Failed to send websocket message: {}", err)
         }
+        release("queue_lock", queue_lock);
+        return;
     }
+    let out: WebsoccketMessage;
+    if queue_element.getting_help{
+        let data = format!("Getting help from {}", queue_element.helped_by);
+        out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Helping,
+            data
+        };
+    } else {
+        let data = format!("{}", queue_element.queue_index.unwrap());
+        out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Index,
+            data
+        };
+    }
+    let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    if let Err(err) = result{
+        println!("Failed to send websocket message: {}", err)
+    }
+
+    let queue = build_queue(queue_lock, q_head_lock);
+    ta_lock.retain(|_, ta| {
+        let out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Queue,
+            data: (&queue).to_string()
+        };
+        let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
+        ta.send(ThreadCommand::Send(message)).is_ok()
+    });
+    release("ta_lock", ta_lock);
 }
 
 async fn handle_ta_websocket(
     ws: warp::ws::WebSocket,
-    students: Students,
     teaching_assistants: TAs,
     queue: Queue,
     q_head: QueueIndex,
     q_tail: QueueIndex,
-    h_head: QueueIndex,
-    h_tail: QueueIndex,
     cookie: TokenData
 ){
+    println!("Handeling TA websockets");
     let (mut tx, mut rx) = ws.split();
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let mut name = cookie.name;
+    let id = cookie.id;
     {
-        let mut ta_lock = teaching_assistants.lock().await;
-        ta_lock.push(msg_tx.clone());
+        let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
+        ta_lock.insert(id, msg_tx.clone());
+        release("ta_lock", ta_lock);
     }
     loop {
         tokio::select! {
@@ -936,9 +904,9 @@ async fn handle_ta_websocket(
                         let ta_command: Result<TaCommand, serde_json::Error> = serde_json::from_str(msg_clone.to_str().unwrap());
                         if let Ok(command) = ta_command{
                             match command.command {
-                                "help" => help_student(&mut tx, &students, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, &h_tail, &name, command.argument).await,
-                                "remove" => remove_student(&mut tx, &students, &teaching_assistants, &queue, &q_head, &q_tail, &h_head, &h_tail, command.argument).await,
-                                "get_queue" => get_queue(&mut tx, &queue, &q_head, &h_head).await,
+                                "help" => help_student(&mut tx,  &teaching_assistants, &queue, &q_head, &q_tail, &name, command.argument).await,
+                                "remove" => remove_student(&mut tx, &teaching_assistants, &queue, &q_head, &q_tail, command.argument).await,
+                                "get_queue" => get_queue(&mut tx, &queue, &q_head).await,
                                 "set_name" => set_name(&mut tx, command, &mut name).await,
                                 _ => tx.send(WarpMessage::text(serde_json::to_string(
                                     &WebsoccketMessage{
@@ -950,13 +918,19 @@ async fn handle_ta_websocket(
                             };
                         }
                         else{
-                            tx.send(WarpMessage::text("Not text")).await.unwrap();
+                            let result = tx.send(WarpMessage::text("Not text")).await;
+                            if let Err(err) = result{
+                                println!("Failed to send websocket message: {}", err)
+                            }
                         }
                     }
                 }
             }
             Some(info) = msg_rx.recv() => {
                 if let ThreadCommand::Shut = info{
+                    let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
+                    ta_lock.remove(&id);
+                    release("ta_lock", ta_lock);
                     return;
                 }
                 else if let ThreadCommand::Send(data) = info{
@@ -969,119 +943,132 @@ async fn handle_ta_websocket(
 
 async fn help_student(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
-    students: &Students,
     teaching_assistants: &TAs,
     queue: &Queue,
     q_head: &QueueIndex,
     q_tail: &QueueIndex,
-    h_head: &QueueIndex,
-    h_tail: &QueueIndex,
     name: &String,
-    table_number: usize,
+    id: u32,
 ){
-    {
-        let student_lock = students.lock().await;
-        let mut queue_lock = queue.lock().await;
-        let mut q_head_lock = q_head.lock().await;
-        let mut q_tail_lock = q_tail.lock().await;
-        let mut h_tail_lock = h_tail.lock().await;
+    println!("Help students deteced");
+    let mut queue_lock = lock("queue", &queue).await;
+    let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
+    let mut q_head_lock = lock("q_head", &q_head).await;
+    let mut q_tail_lock = lock("q_tail", &q_tail).await;
 
-        match queue_lock[table_number as usize] {
-            QueueState::N => {
-                let out = WebsoccketMessage {
-                    error: "Student not in queue".to_string(),
-                    message_type: OutType::Error,
-                    data: "".to_string(),
-                };
-                tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
-                return;
-            }
-            QueueState::H(_) => {
-                let out = WebsoccketMessage {
-                    error: "Student already getting help".to_string(),
-                    message_type: OutType::Error,
-                    data: "".to_string(),
-                };
-                tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
-                return;
-            }
-            QueueState::Q(ref mut q) => {
-                // Temporarily store indices
-                let prev_idx = q.previous;
-                let next_idx = q.next;
-                let task = q.task.to_string();
-                let id = q.id;
+    let queue_element = queue_lock.get_mut(&id).expect("No queue element for given id");
 
-                // Update previous node if it exists
-                if let Some(qi_prev) = prev_idx {
-                    if let QueueState::Q(ref mut q_prev) = queue_lock[qi_prev as usize] {
-                        q_prev.next = next_idx;
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                } else {
-                    *q_head_lock = next_idx;
-                }
+    //Not in queue
+    if queue_element.queue_index.is_none() {
+        let out = WebsoccketMessage {
+            error: "Student not in queue".to_string(),
+            message_type: OutType::Error,
+            data: "".to_string(),
+        };
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
+        release("q_tail_lock", q_tail_lock);
+        release("ta_lock", ta_lock);
+        release("queue_lock", queue_lock);
+        release("q_head_lock", q_head_lock);
+        return;
+    }
 
-                // Update next node if it exists
-                if let Some(qi_next) = next_idx {
-                    if let QueueState::Q(ref mut q_next) = queue_lock[qi_next as usize] {
-                        q_next.previous = prev_idx;
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                } else {
-                    *q_tail_lock = prev_idx;
-                }
+    //Allready getting help
+    if queue_element.getting_help{
+        let out = WebsoccketMessage {
+            error: "Student already getting help".to_string(),
+            message_type: OutType::Error,
+            data: "".to_string(),
+        };
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
+        release("q_tail_lock", q_tail_lock);
+        release("ta_lock", ta_lock);
+        release("queue_lock", queue_lock);
+        release("q_head_lock", q_head_lock);
+        return;
+    }
 
-                let mut itr_next_idx = next_idx;
-                while let Some(qi_next) = itr_next_idx{
-                    if let QueueState::Q(ref mut q_next) = queue_lock[qi_next as usize] {
-                        q_next.value = q_next.value-1;
-                        itr_next_idx = q_next.next;
-                        if let Some(next_tx) = &student_lock[qi_next as usize]{
-                            let data = format!("{}", q_next.value);
-                            let out = WebsoccketMessage{
-                                error: "".to_string(),
-                                message_type: OutType::Index,
-                                data
-                            };
-                            let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                            let result = next_tx.send(ThreadCommand::Send(message));
-                            if let Err(err) = result{
-                                println!("Failed to send websocket message: {}", err)
-                            }
-                        }
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                }
+    let previous = queue_element.previous;
+    let mut next = queue_element.next;
+    let table_number = queue_element.table_number;
 
-                // Remove student from queue and set as helping
-                let he = QueueElement {
-                    value: 0,
-                    helped_by: name.to_string(),
-                    task,
-                    id,
-                    next: Option::None,
-                    previous: *h_tail_lock,
-                };
 
-                // If there was a previous help tail, update it
-                if let Some(qt) = *h_tail_lock {
-                    if let QueueState::H(ref mut h) = queue_lock[qt as usize] {
-                        h.next = Some(table_number as u32);
-                    }
-                } else {
-                    *h_head.lock().await = Some(table_number as u32);
-                }
-
-                *h_tail_lock = Some(table_number as u32);
-                queue_lock[table_number as usize] = QueueState::H(he);
-            }
+    //Sets it self as being helped
+    queue_element.queue_index = Some(-1);
+    queue_element.getting_help = true;
+    queue_element.helped_by = name.clone();
+    if let Some(ref helped_tx) = queue_element.socket{
+        let data = format!("Getting help from {}", name);
+        let out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Helping,
+            data
+        };
+        let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
+        let result = helped_tx.send(ThreadCommand::Send(data));
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
         }
     }
 
+    // Reconnect the queue
+    if let Some(next_element) = next{
+        let next_element = queue_lock.get_mut(&next_element).unwrap();
+        next_element.previous = previous;
+    }
+    if let Some(prev_element) = previous{
+        let prev_element = queue_lock.get_mut(&prev_element).unwrap();
+        prev_element.next = next;
+    }
+
+    let queue_element = queue_lock.get_mut(&id).unwrap();
+
+    // Adds it self to the front of the queue
+    if let Some(q_head) = *q_head_lock && q_head != id{
+        queue_element.next = Some(q_head);
+        let old_head_element = queue_lock.get_mut(&q_head).unwrap();
+        old_head_element.previous = Some(id);
+    }
+    let queue_element = queue_lock.get_mut(&id).unwrap();
+    *q_head_lock = Some(id);
+    queue_element.previous = None;
+
+    //Updates the tail if neccesarry
+    if let Some(q_tail) = *q_tail_lock && q_tail == id && previous.is_some(){
+        *q_tail_lock = previous
+    }
+
+    //Inform about going up in the queue
+    while let Some(q_next) = next{
+        let q_next = queue_lock.get_mut(&q_next).unwrap();
+        if q_next.queue_index.unwrap() <= 1 {
+            break;
+        } 
+        q_next.queue_index = Some(q_next.queue_index.unwrap() - 1);
+        if let Some(ref tx) = q_next.socket{
+            let data = format!("{}", q_next.queue_index.unwrap());
+            let out = WebsoccketMessage{
+                error: "".to_string(),
+                message_type: OutType::Index,
+                data
+            };
+            let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
+            let result = tx.send(ThreadCommand::Send(message));
+            if let Err(err) = result{
+                println!("Failed to send websocket message: {}", err)
+            }
+
+        }
+        next = q_next.next;
+    }
+
+    // Inform the student that it's getting help
     let data = format!("Now helping {}", table_number);
     let out = WebsoccketMessage {
         error: "".to_string(),
@@ -1089,219 +1076,148 @@ async fn help_student(
         data
     };
 
-    tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
-    {
-        let student_lock = students.lock().await;
-        let mut ta_lock = teaching_assistants.lock().await;
-        let queue_lock = queue.lock().await;
-        let q_head_lock = q_head.lock().await;
-        let h_head_lock = h_head.lock().await;
-
-        let queue = build_queue(queue_lock, q_head_lock, h_head_lock);
-        ta_lock.retain(|ta| {
-            let out = WebsoccketMessage{
-                error: "".to_string(),
-                message_type: OutType::Queue,
-                data: (&queue).to_string()
-            };
-            let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            ta.send(ThreadCommand::Send(message)).is_ok()
-        });
-        if let Some(helped_tx) = &student_lock[table_number as usize]{
-            let data = format!("Getting help from {}", name);
-            let out = WebsoccketMessage{
-                error: "".to_string(),
-                message_type: OutType::Helping,
-                data
-            };
-            let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            let result = helped_tx.send(ThreadCommand::Send(data));
-            if let Err(err) = result{
-                println!("Failed to send websocket message: {}", err)
-            }
-        }
+    let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    if let Err(err) = result{
+        println!("Failed to send websocket message: {}", err)
     }
+
+    //Send the uppdated queue to the TAs
+    let queue = build_queue(queue_lock, q_head_lock);
+    ta_lock.retain(|_, ta| {
+        let out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Queue,
+            data: (&queue).to_string()
+        };
+        let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
+        ta.send(ThreadCommand::Send(message)).is_ok()
+    });
+    release("q_tail_lock", q_tail_lock);
+    release("ta_lock", ta_lock);
 }
 
 async fn remove_student(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
-    students: &Students,
     teaching_assistants: &TAs,
     queue: &Queue,
     q_head: &QueueIndex,
     q_tail: &QueueIndex,
-    h_head: &QueueIndex,
-    h_tail: &QueueIndex,
-    table_number: usize
+    id: u32
 ){
-    {
-        let student_lock = students.lock().await;
-        let mut queue_lock = queue.lock().await;
-        let mut q_head_lock = q_head.lock().await;
-        let mut q_tail_lock = q_tail.lock().await;
-        let mut h_head_lock = h_head.lock().await;
-        let mut h_tail_lock = h_tail.lock().await;
+    println!("Remove student deteced");
+    let mut queue_lock = lock("queue", &queue).await;
+    let mut ta_lock = lock("teaching_assistants", &teaching_assistants).await;
+    let mut q_head_lock = lock("q_head", &q_head).await;
+    let mut q_tail_lock = lock("q_tail", &q_tail).await;
 
-        match queue_lock[table_number as usize] {
-            QueueState::N => {
-                let out = WebsoccketMessage {
-                    error: "Student not in queue".to_string(),
-                    message_type: OutType::Error,
-                    data: "".to_string(),
-                };
-                tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
-                return;
-            }
-            QueueState::H(ref mut h) => {
-                // Temporarily store indices
-                let prev_idx = h.previous;
-                let next_idx = h.next;
+    let queue_element = queue_lock.get_mut(&id).unwrap();
 
-                // Update previous node if it exists
-                if let Some(hi_prev) = prev_idx {
-                    if let QueueState::H(ref mut h_prev) = queue_lock[hi_prev as usize] {
-                        h_prev.next = next_idx;
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                } else {
-                    *h_head_lock = next_idx;
-                }
+    //Not in queue
+    if queue_element.queue_index.is_none() {
+        let out = WebsoccketMessage {
+            error: "Student not in queue".to_string(),
+            message_type: OutType::Error,
+            data: "".to_string(),
+        };
+        let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
+        print!("Droped lock");
+        return;
+    }
 
-                // Update next node if it exists
-                if let Some(hi_next) = next_idx {
-                    if let QueueState::H(ref mut h_next) = queue_lock[hi_next as usize] {
-                        h_next.previous = prev_idx;
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                } else {
-                    *h_tail_lock = prev_idx;
-                }
+    let previous = queue_element.previous;
+    let mut next = queue_element.next;
+    let table_number = queue_element.table_number;
 
-                queue_lock[table_number as usize] = QueueState::N;
+    // Updates the head if neccesarry
+    if let Some(q_head) = *q_head_lock && q_head == id {
+        *q_head_lock = queue_element.next;
+    }
+    queue_element.previous = None;
 
-                let data = format!("Removing student {}", table_number);
-                let out = WebsoccketMessage {
-                    error: "".to_string(),
-                    message_type: OutType::Info,
-                    data,
-                };
-                tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
-                if let Some(removed_tx) = &student_lock[table_number as usize]{
-                    let out = WebsoccketMessage{
-                        error: "".to_string(),
-                        message_type: OutType::NotQueue,
-                        data: "Removed from queue".to_string()
-                    };
-                    let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                    let result = removed_tx.send(ThreadCommand::Send(data));
-                    if let Err(err) = result{
-                        println!("Failed to send websocket message: {}", err)
-                    }
-                    let result = removed_tx.send(ThreadCommand::Shut);
-                    if let Err(err) = result{
-                        println!("Failed to send websocket message: {}", err)
-                    }
-
-                }
-            }
-            QueueState::Q(ref mut q) => {
-                // Temporarily store indices
-                let prev_idx = q.previous;
-                let next_idx = q.next;
-
-                // Update previous node if it exists
-                if let Some(qi_prev) = prev_idx {
-                    if let QueueState::Q(ref mut q_prev) = queue_lock[qi_prev as usize] {
-                        q_prev.next = next_idx;
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                } else {
-                    *q_head_lock = next_idx;
-                }
-
-                // Update next node if it exists
-                if let Some(qi_next) = next_idx {
-                    if let QueueState::Q(ref mut q_next) = queue_lock[qi_next as usize] {
-                        q_next.previous = prev_idx;
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                } else {
-                    *q_tail_lock = prev_idx;
-                }
-
-                let mut itr_next_idx = next_idx;
-                while let Some(qi_next) = itr_next_idx{
-                    if let QueueState::Q(ref mut q_next) = queue_lock[qi_next as usize] {
-                        q_next.value = q_next.value-1;
-                        itr_next_idx = q_next.next;
-                        if let Some(next_tx) = &student_lock[qi_next as usize]{
-                            let data = format!("{}", q_next.value);
-                            let out = WebsoccketMessage{
-                                error: "".to_string(),
-                                message_type: OutType::Index,
-                                data
-                            };
-                            let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                            let result = next_tx.send(ThreadCommand::Send(message));
-                            if let Err(err) = result{
-                                println!("Failed to send websocket message: {}", err)
-                            }
-                        }
-                    } else{
-                        panic!("Error in linked list implementation")
-                    }
-                }
-
-                queue_lock[table_number as usize] = QueueState::N;
-
-                let data = format!("Removing student {}", table_number);
-                let out = WebsoccketMessage {
-                    error: "".to_string(),
-                    message_type: OutType::Info,
-                    data,
-                };
-                tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
-                if let Some(removed_tx) = &student_lock[table_number as usize]{
-                    let out = WebsoccketMessage{
-                        error: "".to_string(),
-                        message_type: OutType::NotQueue,
-                        data: "Not in queue".to_string()
-                    };
-                    let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
-                    let result = removed_tx.send(ThreadCommand::Send(data));
-                    if let Err(err) = result{
-                        println!("Failed to send websocket message: {}", err)
-                    }
-                    let result = removed_tx.send(ThreadCommand::Shut);
-                    if let Err(err) = result{
-                        println!("Failed to send websocket message: {}", err)
-                    }
-
-                }
-            }
+    //Updates the tail if neccesarry
+    if let Some(q_tail) = *q_tail_lock && q_tail == id{
+        *q_tail_lock = previous
+    }
+    //Informing TA
+    let data = format!("Removing student {}", table_number);
+    let out = WebsoccketMessage {
+        error: "".to_string(),
+        message_type: OutType::Info,
+        data,
+    };
+    let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    if let Err(err) = result{
+        println!("Failed to send websocket message: {}", err)
+    }
+    if let Some(ref tx)  = queue_element.socket{
+        let out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::NotQueue,
+            data: "Removed from queue".to_string()
+        };
+        let data = WarpMessage::text(serde_json::to_string(&out).unwrap());
+        let result = tx.send(ThreadCommand::Send(data));
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
+        }
+        let result = tx.send(ThreadCommand::Shut);
+        if let Err(err) = result{
+            println!("Failed to send websocket message: {}", err)
         }
     }
-    {
-        let mut ta_lock = teaching_assistants.lock().await;
-        let queue_lock = queue.lock().await;
-        let q_head_lock = q_head.lock().await;
-        let h_head_lock = h_head.lock().await;
 
-        let queue = build_queue(queue_lock, q_head_lock, h_head_lock);
-        ta_lock.retain(|ta| {
+    queue_lock.remove(&id);
+
+    // Reconnect the queue
+    if let Some(next_element) = next{
+        let next_element = queue_lock.get_mut(&next_element).unwrap();
+        next_element.previous = previous;
+    }
+
+    if let Some(prev_element) = previous{
+        let prev_element = queue_lock.get_mut(&prev_element).unwrap();
+        prev_element.next = next;
+    }
+
+    //Inform about going up in the queue
+    while let Some(q_next) = next{
+        let q_next = queue_lock.get_mut(&q_next).unwrap();
+        if q_next.queue_index.unwrap() <= 1 {
+            break;
+        } 
+        q_next.queue_index = Some(q_next.queue_index.unwrap() - 1);
+        if let Some(ref tx) = q_next.socket{
+            let data = format!("{}", q_next.queue_index.unwrap());
             let out = WebsoccketMessage{
                 error: "".to_string(),
-                message_type: OutType::Queue,
-                data: (&queue).to_string()
+                message_type: OutType::Index,
+                data
             };
             let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
-            ta.send(ThreadCommand::Send(message)).is_ok()
-        });
+            let result = tx.send(ThreadCommand::Send(message));
+            if let Err(err) = result{
+                println!("Failed to send websocket message: {}", err)
+            }
+
+        }
+        next = q_next.next;
     }
+
+    let queue = build_queue(queue_lock, q_head_lock);
+    ta_lock.retain(|_, ta| {
+        let out = WebsoccketMessage{
+            error: "".to_string(),
+            message_type: OutType::Queue,
+            data: (&queue).to_string()
+        };
+        let message = WarpMessage::text(serde_json::to_string(&out).unwrap());
+        ta.send(ThreadCommand::Send(message)).is_ok()
+    });
+    release("q_tail_lock", q_tail_lock);
+    release("ta_lock", ta_lock);
 }
 
 
@@ -1309,19 +1225,22 @@ async fn get_queue(
     tx: &mut SplitSink<WebSocket, WarpMessage>,
     queue: &Queue,
     q_head: &QueueIndex,
-    h_head: &QueueIndex,
 ){
-    let queue_lock = queue.lock().await;
-    let q_head_lock = q_head.lock().await;
-    let h_head_lock = h_head.lock().await;
-    let data = build_queue(queue_lock, q_head_lock, h_head_lock);
+    println!("Get queue deteced");
+    let queue_lock = lock("queue", &queue).await;
+    let q_head_lock = lock("q_head", &q_head).await;
+
+    let data = build_queue(queue_lock, q_head_lock);
     let out = WebsoccketMessage {
         error: "".to_string(),
         message_type: OutType::Queue,
         data
     };
 
-    tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
+    let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    if let Err(err) = result{
+        println!("Failed to send websocket message: {}", err)
+    }
 }
 
 async fn set_name<'a>(
@@ -1336,7 +1255,21 @@ async fn set_name<'a>(
         data: name.clone()
     };
 
-    tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await.unwrap();
+    let result = tx.send(WarpMessage::text(serde_json::to_string(&out).unwrap())).await;
+    if let Err(err) = result{
+        println!("Failed to send websocket message: {}", err)
+    }
+}
+
+async fn lock<'a, T>(name: &str, mutex: &'a Arc<Mutex<T>>) -> MutexGuard<'a, T>{
+    println!("Aquireing {name} {:p} lock", mutex);
+    let out = mutex.lock().await;
+    println!("Aquired {name} lock {:p}", mutex);
+    out
+}
+
+fn release<'a, T>(name: &str, _mutex_guard: MutexGuard<'a, T>){
+    println!("Released {name}");
 }
 
 fn default_user() -> TokenData{
@@ -1346,45 +1279,29 @@ fn default_user() -> TokenData{
         name: "Teaching assistant".to_string(),
         table_number: 0,
         task: "".to_string(),
-        id: rand::random::<u128>(),
+        id: rand::random::<u32>(),
     }
 }
 
 fn build_queue(
-    queue_lock: MutexGuard<'_, [QueueState; TABLE_NUMBER+1]>,
+    queue_lock: MutexGuard<'_, HashMap<u32, QueueElement>>,
     q_head_lock: MutexGuard<'_, Option<u32>>,
-    h_head_lock: MutexGuard<'_, Option<u32>>
 ) -> String{
     let mut queue = "".to_string();
-    let mut itr_next_idx = *h_head_lock;
-    while let Some(hi_next) = itr_next_idx{
-        if let QueueState::H(ref h_next) = queue_lock[hi_next as usize] {
-            let item = serde_json::json!({
-                "index": h_next.value,
-                "table_number": hi_next,
-                "task": h_next.task,
-                "helped_by": h_next.helped_by,
-            });
-            queue = format!("{queue}, {item}");
-            itr_next_idx = h_next.next;
-        } else{
-            panic!("Error in linked list implementation")
-        }
-    }
     let mut itr_next_idx = *q_head_lock;
-    while let Some(qi_next) = itr_next_idx{
-        if let QueueState::Q(ref q_next) = queue_lock[qi_next as usize] {
-            let item = serde_json::json!({
-                "index": q_next.value,
-                "table_number": qi_next,
-                "task": q_next.task,
-            });
-            queue = format!("{queue}, {item}");
-            itr_next_idx = q_next.next;
-        } else{
-            panic!("Error in linked list implementation")
-        }
+    while let Some(q_next_id) = itr_next_idx{
+        let q_next = queue_lock.get(&q_next_id).expect("Invalid linked list");
+        let item = serde_json::json!({
+            "index": q_next.queue_index.expect("Index is none"),
+            "table_number": q_next.table_number,
+            "id": q_next.id,
+            "task": q_next.task,
+        });
+        queue = format!("{queue}, {item}");
+        itr_next_idx = q_next.next;
     }
+    release("queue_lock", queue_lock);
+    release("q_head_lock", q_head_lock);
     if queue.len() > 2{
         format!("[{}]", &queue[2..])
     }else {
