@@ -1,4 +1,5 @@
 var chosen = 0;
+var room = document.getElementById("room-layout").getAttribute("data-room-name")
 
 function setFavicon(num) {
     if ((num < 0 || num > 30) && num !== "Q") {
@@ -45,7 +46,7 @@ document.querySelectorAll(".table").forEach((table) => {
         fetch("/api/table_number", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({table_number: parseInt(table.getAttribute("data-table-number")), task:document.getElementById("oppgave").value})
+            body: JSON.stringify({table_number: parseInt(table.getAttribute("data-table-number")), room:room, task:document.getElementById("oppgave").value})
         })
             .then((res) => res.json())
             .then((data) => {

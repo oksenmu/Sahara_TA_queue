@@ -1,4 +1,10 @@
-TABLE_NUMBER = 44;
+TABLE_NUMBER = Math.max(...[
+    ...document
+    .querySelectorAll('[data-table-number]')
+    .values()
+    .map(e=>Number(e.getAttribute("data-table-number")))
+]);
+var ROOM = document.getElementById("room-layout").getAttribute("data-room-name")
 let queue = []
 
 function removeUser(id) {
@@ -19,7 +25,10 @@ function resetTables(){
     }
 }
 
-function updateTable(id, index){
+function updateTable(id, room, index){
+    if (room != ROOM){
+        return;
+    }
     table = document.getElementById(id)
     if (table.innerText != "") return
     table.innerText = index
@@ -66,7 +75,7 @@ function make_queue(queue){
         th.innerText = "Index"
         row.appendChild(th)
         th = document.createElement("th")
-        th.innerText = "Table ID"
+        th.innerText = "Room"
         row.appendChild(th)
         th = document.createElement("th")
         th.innerText = "Needs help with"
@@ -102,7 +111,14 @@ function make_queue(queue){
             td.innerText = index
             row.appendChild(td)
             td = document.createElement("td")
-            td.innerText = data_element["table_number"]
+            if (data_element["room"] == ROOM) {
+                td.innerText = data_element["room"]
+            } else {
+                a = document.createElement("a")
+                a.href = data_element["room"]
+                a.innerText = data_element["room"]
+                td.appendChild(a)
+            }
             row.appendChild(td)
             td = document.createElement("td")
             if ("helped_by" in data_element){
@@ -123,7 +139,7 @@ function make_queue(queue){
             button.onclick = (event) => removeUser(event.target.parentNode.parentNode.id)
             td.appendChild(button)
             row.appendChild(td)
-            updateTable(data_element["table_number"], index)
+            updateTable(data_element["table_number"], data_element["room"], index)
             if (index > max_index) max_index = index
         }
         document.getElementById("title").innerText = `(${offset}/${max_index+offset}) TA queue admin`
@@ -151,10 +167,6 @@ function sendUpdateName(){
     });
 }
 
-function init(){
-    data = {command: "get_queue", argument: 0, "value": ""}
-    socket.send(JSON.stringify(data));
-}
 
 const socket = new WebSocket('/ta_ws');
 socket.onmessage = function (event) {
@@ -196,7 +208,6 @@ document.getElementById('name').addEventListener('keypress', (event) => {
 Notification.requestPermission().then((result) => {
   console.log(result);
 });
-
 
 
 updateName()

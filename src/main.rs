@@ -1,19 +1,23 @@
+use jsonwebtoken::{decode, encode, DecodingKey, Validation, Header, EncodingKey};
+use log::{debug, error, info, trace, warn};
+use tokio::sync::{mpsc, Mutex, MutexGuard};
+use futures_util::{StreamExt, SinkExt};
 use futures_util::stream::SplitSink;
+use serde::{Deserialize, Serialize};
+
+use warp::http::{Uri, header::{CONTENT_TYPE, HeaderValue}};
+use warp::ws::{Message as WarpMessage, WebSocket};
 use warp::reply::Reply;
 use warp::Filter;
-use warp::ws::{Message as WarpMessage, WebSocket} ;
-use warp::http::header::{CONTENT_TYPE, HeaderValue};
-use futures_util::{StreamExt, SinkExt};
-use tokio::sync::{mpsc, Mutex, MutexGuard};
-use jsonwebtoken::{decode, encode, DecodingKey, Validation, Header, EncodingKey};
-use serde::{Deserialize, Serialize};
-use log::{debug, error, info, trace, warn};
-use std::net::Ipv4Addr;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
+use std::vec::Vec;
 use std::sync::Arc;
 use std::cmp::max;
 use std::env;
+use std::fs;
 
 // Shared list of connected clients
 
@@ -25,6 +29,7 @@ struct QueueElement{
     getting_help: bool,
     queue_index: Option<i32>,
     table_number: u32,
+    room: String,
     helped_by: String,
     task: String,
     id: u32,
@@ -38,6 +43,7 @@ struct QueueElement{
 struct TokenData {
     ta: bool,
     table_number: u32,
+    room: String,
     name: String,
     task: String,
     helped_by: String,
@@ -60,6 +66,7 @@ struct WebsoccketMessage {
 #[derive(Debug, Deserialize, Serialize)]
 struct TableNumberUserMessage {
     table_number: u32,
+    room: String,
     task: String,
 }
 
@@ -67,6 +74,12 @@ struct TableNumberUserMessage {
 struct Name {
     error: String,
     data: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Settings {
+    main_room: String,
+    rooms: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -106,113 +119,12 @@ type TAs = Arc<Mutex<HashMap<u32, mpsc::UnboundedSender<ThreadCommand>>>>;
 type Queue = Arc<Mutex<HashMap<u32, QueueElement>>>;
 type QueueIndex = Arc<Mutex<Option<u32>>>;
 
-// // Get JWT secret from environment or fallback to default
-fn get_jwt_secret() -> String {
-    env::var("JWT_PASSWORD").unwrap_or_else(|_| "supersecretkey".to_string())
-}
-
-fn get_ta_token() -> String {
-    env::var("TA_TOKEN").unwrap_or_else(|_| "ta_token".to_string())
-}
-
-fn get_access_token(cookie_header: &str) -> Option<&str> {
-    cookie_header
-        .split(';')
-        .map(str::trim)
-        .find_map(|cookie| {
-            let (name, value) = cookie.split_once('=')?;
-            if name == "access_token_cookie" {
-                Some(value)
-            } else {
-                None
-            }
-        })
-}
-
-fn set_jwt_cookie<R: Reply>(response: R, user: TokenData) -> impl Reply {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let claims = Claims {
-        user,
-        exp: (now + 60 * 60 * 24) as usize, // 1 day
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
-    ).unwrap();
-
-    warp::reply::with_header(
-        response,
-        "Set-Cookie",
-        format!(
-            // "access_token_cookie={}; Max-Age=86400; Path=/; HttpOnly; SameSite=Strict",
-            "access_token_cookie={}; Max-Age=86400; Path=/; SameSite=Strict",
-            token
-        ),
-    )
-}
-
-fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
-    let jwt_secret = get_jwt_secret();
-    if let Some(cookie_str) = cookie {
-        let token = get_access_token(&cookie_str)?;
-        match decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(jwt_secret.as_ref()),
-            &Validation::default()
-        ) {
-            Ok(token_data) => {
-                let token_data = token_data.claims.user;
-                Option::Some(token_data)
-            }
-            Err(err) => {
-                warn!("Cookie validation failed: {:?}", err);
-                None
-            },
-        }
-    } else {
-        warn!("No Cookie");
-        None
-    }
-}
-
-fn validate_ta_cookie(cookie: Option<String>) -> Option<TokenData> {
-    let jwt_secret = get_jwt_secret();
-    if let Some(cookie_str) = cookie {
-        let token = get_access_token(&cookie_str)?;
-        match decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(jwt_secret.as_ref()),
-            &Validation::default()
-        ) {
-            Ok(token_data) => {
-                let token_data = token_data.claims.user;
-                if token_data.ta {
-                    Option::Some(token_data)
-                } else {
-                    warn!("Is not TA");
-                    None
-                }
-            }
-            Err(err) => {
-                warn!("TA cookie validation failed {:?}", err);
-                None
-            },
-        }
-    } else {
-        warn!("No cookie");
-        None
-    }
-}
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
+
+    let mut rooms: Vec<String> = Vec::new();
 
     let teaching_assistants: TAs = Arc::new(Mutex::new(HashMap::new()));
     let queue: Queue = Arc::new(Mutex::new(HashMap::new()));
@@ -259,22 +171,15 @@ async fn main() {
         .expect("failed to read file");
     let file_admin_js = bytes::Bytes::from(file_admin_js);
 
-    let file_rooms_sahara_html = tokio::fs::read("frontend/rooms/sahara.html")
+    let file_settings_html = tokio::fs::read("frontend/settings.html")
         .await
         .expect("failed to read file");
-    let file_rooms_sahara_html = String::from_utf8(file_rooms_sahara_html).expect("Bytes should be valid utf8");
-
-    let sahara_student_page = file_index_html.replace("%%ROOM%%", file_rooms_sahara_html.as_str());
-    let sahara_student_page = bytes::Bytes::from(sahara_student_page);
-
-
-    let sahara_admin_page = file_admin_html.replace("%%ROOM%%", file_rooms_sahara_html.as_str());
-    let sahara_admin_page = bytes::Bytes::from(sahara_admin_page);
-
-    let file_rooms_sahara_css = tokio::fs::read("frontend/rooms/sahara.css")
+    let file_settings_html = bytes::Bytes::from(file_settings_html);
+    let file_settings_js = tokio::fs::read("frontend/settings.js")
         .await
         .expect("failed to read file");
-    let file_rooms_sahara_css = bytes::Bytes::from(file_rooms_sahara_css);
+    let file_settings_js = bytes::Bytes::from(file_settings_js);
+
 
     info!("Starting webserver.....");
 
@@ -283,27 +188,107 @@ async fn main() {
     let index_js = serve_page(file_index_js, warp::path!("index.js"), "application/javascript");
     let student_js = serve_page(file_student_js, warp::path!("student.js"), "application/javascript");
     let styles = serve_page(file_styles_css, warp::path!("styles.css"), "text/css");
-    let ta = serve_page(file_ta_html, warp::path!("ta"), "text,html");
+    let ta = serve_page(file_ta_html, warp::path!("ta"), "text/html");
     // let admin = serve_admin_page(file_admin_html, warp::path!("admin"), "text/html");
     let admin_js = serve_admin_page(file_admin_js, warp::path!("admin.js"), "application/javascript");
-    let rooms_sahara = serve_page(sahara_student_page, warp::path!("rooms" / "sahara"), "text/html");
-    let admin_rooms_sahara = serve_admin_page(sahara_admin_page, warp::path!("admin" / "rooms" / "sahara"), "text/html");
-    let rooms_sahara_css = serve_page(file_rooms_sahara_css, warp::path!("rooms" / "sahara.css"), "text/css");
+    let settings_path = serve_admin_page(file_settings_html, warp::path!("settings"), "text/html");
+    let settings_js = serve_admin_page(file_settings_js, warp::path!("settings.js"), "application/javascript");
 
-    let index = warp::path!()
-        .and(warp::get())
-        .map(|| {
-            warp::redirect::temporary(
-                warp::http::Uri::from_static("/rooms/sahara")
-            )
-        });
-    let admin = warp::path!("admin")
-        .and(warp::get())
-        .map(|| {
-            warp::redirect::temporary(
-                warp::http::Uri::from_static("/admin/rooms/sahara")
-            )
-        });
+
+
+    let file_setting = fs::read_to_string("settings.json");
+    let settings: Arc<Mutex<Settings>>;
+    let has_old_settings;
+    if let Ok(file) = file_setting{
+        settings = Arc::new(Mutex::new(serde_json::from_str(file.as_str()).expect("settings.json have an incorrect format")));
+        has_old_settings = true;
+    } else {
+        has_old_settings = false;
+        settings = Arc::new(Mutex::new(Settings{
+            main_room: "sahara".to_string(),
+            rooms: Vec::new()
+        }));
+    }
+
+    let index = {
+        let settings_clone = settings.clone();
+        warp::path!()
+            .and(warp::get())
+            .then(move || {
+                let settings_clone  = settings_clone.clone();
+                async move{
+                    let settings_lock = lock("settings", &settings_clone).await;
+                    let target = format!("/rooms/{}", settings_lock.main_room);
+                    let uri: Uri = target.parse().unwrap();
+                    warp::redirect::temporary(uri).into_response()
+                }
+            })
+    };
+
+    let admin = {
+        let settings_clone = settings.clone();
+        warp::path!("admin")
+            .and(warp::get())
+            .then(move || {
+                let settings_clone  = settings_clone.clone();
+                async move{
+                    let settings_lock = lock("settings", &settings_clone).await;
+                    let target = format!("/admin/rooms/{}", settings_lock.main_room);
+                    info!("{target}");
+                    let uri: Uri = target.parse().unwrap();
+                    warp::redirect::temporary(uri).into_response()
+                }
+            })
+    };
+
+    let mut routes = index.boxed();
+    let files = fs::read_dir("frontend/rooms").unwrap().map(|file| file.unwrap().path().into_string().unwrap()).collect::<Vec<String>>();
+    for file in files{
+        let file_name = file.as_str().split("/").last().unwrap().to_string();
+        let file_content = tokio::fs::read(file.clone())
+            .await
+            .expect("failed to read file");
+
+        if file_name.ends_with(".html"){
+            let web_path: String = file_name.chars().take(file_name.chars().count().saturating_sub(5)).collect();
+            rooms.push(web_path.clone());
+            if !has_old_settings{
+                let mut settings_lock = lock("settings", &settings).await;
+                settings_lock.rooms.push(web_path.clone());
+                release("settings_lock", settings_lock);
+            }
+            let file_content = String::from_utf8(file_content).expect("Bytes should be valid utf8");
+            let index_file_content = file_index_html.replace("%%ROOM%%", file_content.as_str());
+            let index_file_content = bytes::Bytes::from(index_file_content);
+            let admin_file_content = file_admin_html.replace("%%ROOM%%", file_content.as_str());
+            let admin_file_content = bytes::Bytes::from(admin_file_content);
+            let settings_clone = settings.clone();
+            let web_path_clone = web_path.clone();
+            let room_page = serve_room_page(index_file_content, warp::path("rooms").and(warp::path(web_path.clone())).and(warp::path::end()), settings_clone, web_path_clone);
+            let settings_clone = settings.clone();
+            let web_path_clone = web_path.clone();
+            let admin_room_page = serve_admin_room_page(admin_file_content, warp::path("admin").and(warp::path("rooms")).and(warp::path(web_path.clone())).and(warp::path::end()), settings_clone, web_path_clone);
+            routes = routes.or(room_page).unify().or(admin_room_page).unify().boxed();
+
+        } else if file_name.ends_with(".css"){
+            let web_path = file_name;
+            let file_content = bytes::Bytes::from(file_content);
+            let room_page = serve_page(file_content, warp::path("rooms").and(warp::path(web_path)).and(warp::path::end()), "text/css");
+            routes = routes.or(room_page).unify().boxed();
+        }
+    }
+
+    if !has_old_settings{
+        let settings_lock = lock("settings", &settings).await;
+        let result = fs::write("settings.json", serde_json::to_string(&*settings_lock).unwrap());
+        if let Err(err) = result{
+            error!("Failed to write settings to file: {}", err)
+        }
+        release("settings_lock", settings_lock);
+    }
+
+
+
 
     let favicon = warp::path!("favicons" / String)
         .and(warp::get())
@@ -480,6 +465,78 @@ async fn main() {
             }
         });
 
+    let api_rooms = rooms.clone();
+
+    let api_rooms_route = warp::path!("api" / "rooms")
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .map(move |
+            cookie: Option<String>,
+        |{
+            if let Some(_) = validate_ta_cookie(cookie) {
+                warp::reply::json(
+                    &api_rooms
+                ).into_response()
+            } else {
+                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+            }
+        });
+
+    let api_settings_route = {
+        let settings_clone = settings.clone();
+        warp::path!("api" / "settings")
+            .and(warp::get())
+            .and(warp::header::optional::<String>("cookie"))
+            .then(move |
+                cookie: Option<String>,
+            | {
+                let settings_clone = settings_clone.clone();
+                async move{
+                    if let Some(_) = validate_ta_cookie(cookie) {
+                        let settings_lock = lock("settings", &settings_clone).await;
+                        let response = warp::reply::json(
+                            &*settings_lock
+                        ).into_response();
+                        release("settigns_lock", settings_lock);
+                         response
+                    } else {
+                         warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+                    }
+                }
+            })
+    };
+
+    let post_api_settings_route = {
+        let settings_clone = settings.clone();
+        warp::path!("api" / "settings")
+            .and(warp::post())
+            .and(warp::header::optional::<String>("cookie"))
+            .and(warp::body::json::<Settings>())
+            .then(move |
+                cookie: Option<String>,
+                new_settings: Settings,
+            | {
+                let settings_clone = settings_clone.clone();
+                async move{
+                    if let Some(_) = validate_ta_cookie(cookie) {
+                        let mut settings_lock = lock("settings", &settings_clone).await;
+                        *settings_lock = new_settings;
+                        let response = warp::reply::json(
+                            &*settings_lock
+                        ).into_response();
+                        let result = fs::write("settings.json", serde_json::to_string(&*settings_lock).unwrap());
+                        if let Err(err) = result{
+                            error!("Failed to write settings to file: {}", err)
+                        }
+                        release("settigns_lock", settings_lock);
+                         response
+                    } else {
+                         warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+                    }
+                }
+            })
+    };
+
     let api_name_route = warp::path!("api" / "name")
         .and(warp::get())
         .and(warp::header::optional::<String>("cookie"))
@@ -549,42 +606,57 @@ async fn main() {
             }
         });
 
-    let post_api_table_number_route = warp::path!("api" / "table_number")
-        .and(warp::post())
-        .and(warp::header::optional::<String>("cookie"))
-        .and(warp::body::json::<TableNumberUserMessage>())
-        .map(|
-            cookie: Option<String>,
-            message: TableNumberUserMessage
-        |{
-            if let Some(mut cookie_value) = validate_student_cookie(cookie) {
-                cookie_value.table_number = message.table_number;
-                cookie_value.task = message.task;
-                let response = warp::reply::json(&TableNumber {
-                    error: String::new(),
-                    data: cookie_value.table_number,
-                });
-                set_jwt_cookie(response, cookie_value).into_response()
-            } else {
-                warn!("No some cookie value");
-                warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
-            }
-        });
+    let post_api_table_number_route = {
+        let settings_clone = settings.clone();
+        warp::path!("api" / "table_number")
+            .and(warp::post())
+            .and(warp::header::optional::<String>("cookie"))
+            .and(warp::body::json::<TableNumberUserMessage>())
+            .then(move |
+                cookie: Option<String>,
+                message: TableNumberUserMessage
+            |{ 
+                let settings_clone = settings_clone.clone();
+                async move {
+                    let settings_lock = lock("settings", &settings_clone).await;
+                    if !settings_lock.rooms.contains(&message.room){
+                        warn!("No some cookie value");
+                        return  warp::reply::with_status("", warp::http::StatusCode::BAD_REQUEST).into_response();
+                    }
+                    release("settings_lock", settings_lock);
+                    if let Some(mut cookie_value) = validate_student_cookie(cookie) {
+                        cookie_value.table_number = message.table_number;
+                        cookie_value.room = message.room;
+                        cookie_value.task = message.task;
+                        let response = warp::reply::json(&TableNumber {
+                            error: String::new(),
+                            data: cookie_value.table_number,
+                        });
+                         set_jwt_cookie(response, cookie_value).into_response()
+                    } else {
+                        warn!("No some cookie value");
+                         warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
+                    }
+                }
+            })
+    };
 
 
-    let routes = index
+    let routes = routes
         .or(index_js)
         .or(student_js)
         .or(styles)
         .or(admin)
         .or(admin_js)
-        .or(rooms_sahara)
-        .or(admin_rooms_sahara)
-        .or(rooms_sahara_css)
         .or(ta)
+        .or(settings_path)
+        .or(settings_js)
         .or(post_ta)
         .or(student_route)
         .or(ta_route)
+        .or(api_rooms_route)
+        .or(api_settings_route)
+        .or(post_api_settings_route)
         .or(api_name_route)
         .or(post_api_name_route)
         .or(api_task_route)
@@ -626,6 +698,90 @@ where
             } else {
                 let cookie_value = default_user();
                 set_jwt_cookie(response, cookie_value).into_response()
+            }
+        })
+}
+
+fn serve_room_page<F>(
+    file: bytes::Bytes,
+    path: F,
+    settings: Arc<Mutex<Settings>>,
+    room: String
+) -> impl Filter<
+    Extract = (warp::reply::Response,),
+    Error = warp::Rejection,
+> + Clone
+where
+    F: Filter<Extract = (), Error = warp::Rejection> + Clone,
+{
+    path
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .then(move |
+            cookie: Option<String>,
+        |{
+            let settings_clone = settings.clone();
+            let room_clone = room.clone();
+            let file_clone = file.clone();
+            async move {
+                let settings_lock = lock("settings", &settings_clone).await;
+                if !settings_lock.rooms.contains(&room_clone){
+                    warn!("No some cookie value");
+                    return  warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response();
+                }
+                let mut response = warp::reply::Response::new(file_clone.clone().into());
+                response.headers_mut().insert(
+                    CONTENT_TYPE,
+                     HeaderValue::from_static("text/html"),
+                );
+                if let Some(cookie_value) = validate_student_cookie(cookie) {
+                    set_jwt_cookie(response, cookie_value).into_response()
+                } else {
+                    let cookie_value = default_user();
+                    set_jwt_cookie(response, cookie_value).into_response()
+                }
+            }
+        })
+}
+
+fn serve_admin_room_page<F>(
+    file: bytes::Bytes,
+    path: F,
+    settings: Arc<Mutex<Settings>>,
+    room: String
+) -> impl Filter<
+    Extract = (warp::reply::Response,),
+    Error = warp::Rejection,
+> + Clone
+where
+    F: Filter<Extract = (), Error = warp::Rejection> + Clone,
+{
+    path
+        .and(warp::get())
+        .and(warp::header::optional::<String>("cookie"))
+        .then(move |
+            cookie: Option<String>,
+        |{
+            let settings_clone = settings.clone();
+            let room_clone = room.clone();
+            let file_clone = file.clone();
+            async move {
+                let settings_lock = lock("settings", &settings_clone).await;
+                if !settings_lock.rooms.contains(&room_clone){
+                    warn!("No some cookie value");
+                    return  warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response();
+                }
+                let mut response = warp::reply::Response::new(file_clone.clone().into());
+                response.headers_mut().insert(
+                    CONTENT_TYPE,
+                     HeaderValue::from_static("text/html"),
+                );
+                if let Some(cookie_value) = validate_student_cookie(cookie) {
+                    set_jwt_cookie(response, cookie_value).into_response()
+                } else {
+                    let cookie_value = default_user();
+                    set_jwt_cookie(response, cookie_value).into_response()
+                }
             }
         })
 }
@@ -673,6 +829,7 @@ async fn handle_student_websocket(
     let (mut tx, mut rx) = ws.split();
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
     let table_number = cookie.table_number;
+    let room = cookie.room;
     let task = cookie.task;
     let id = cookie.id;
     // if new socket already exists then shut that down and create new
@@ -687,6 +844,7 @@ async fn handle_student_websocket(
         }
         queue_element.task = task.clone();
         queue_element.table_number = table_number;
+        queue_element.room = room;
         queue_element.socket = Some(msg_tx.clone());
     }else {
         let queue_element = QueueElement{
@@ -696,6 +854,7 @@ async fn handle_student_websocket(
             task: task.clone(),
             id,
             table_number,
+            room,
             next: None,
             previous: None,
             socket: Some(msg_tx.clone()),
@@ -1336,6 +1495,7 @@ fn default_user() -> TokenData{
         helped_by: "".to_string(),
         name: "Teaching assistant".to_string(),
         table_number: 0,
+        room: "None".to_string(),
         task: "".to_string(),
         id: rand::random::<u32>(),
     }
@@ -1352,6 +1512,7 @@ fn build_queue(
         let item = serde_json::json!({
             "index": q_next.queue_index.expect("Index is none"),
             "table_number": q_next.table_number,
+            "room": q_next.room,
             "id": q_next.id,
             "task": q_next.task,
         });
@@ -1364,5 +1525,110 @@ fn build_queue(
         format!("[{}]", &queue[2..])
     }else {
         "[]".to_string()
+    }
+}
+
+
+// // Get JWT secret from environment or fallback to default
+fn get_jwt_secret() -> String {
+    env::var("JWT_PASSWORD").unwrap_or_else(|_| "supersecretkey".to_string())
+}
+
+fn get_ta_token() -> String {
+    env::var("TA_TOKEN").unwrap_or_else(|_| "ta_token".to_string())
+}
+
+fn get_access_token(cookie_header: &str) -> Option<&str> {
+    cookie_header
+        .split(';')
+        .map(str::trim)
+        .find_map(|cookie| {
+            let (name, value) = cookie.split_once('=')?;
+            if name == "access_token_cookie" {
+                Some(value)
+            } else {
+                None
+            }
+        })
+}
+
+fn set_jwt_cookie<R: Reply>(response: R, user: TokenData) -> impl Reply {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let claims = Claims {
+        user,
+        exp: (now + 60 * 60 * 24) as usize, // 1 day
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
+    ).unwrap();
+
+    warp::reply::with_header(
+        response,
+        "Set-Cookie",
+        format!(
+            // "access_token_cookie={}; Max-Age=86400; Path=/; HttpOnly; SameSite=Strict",
+            "access_token_cookie={}; Max-Age=86400; Path=/; SameSite=Strict",
+            token
+        ),
+    )
+}
+
+fn validate_student_cookie(cookie: Option<String>) -> Option<TokenData> {
+    let jwt_secret = get_jwt_secret();
+    if let Some(cookie_str) = cookie {
+        let token = get_access_token(&cookie_str)?;
+        match decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(jwt_secret.as_ref()),
+            &Validation::default()
+        ) {
+            Ok(token_data) => {
+                let token_data = token_data.claims.user;
+                Option::Some(token_data)
+            }
+            Err(err) => {
+                warn!("Cookie validation failed: {:?}", err);
+                None
+            },
+        }
+    } else {
+        warn!("No Cookie");
+        None
+    }
+}
+
+fn validate_ta_cookie(cookie: Option<String>) -> Option<TokenData> {
+    let jwt_secret = get_jwt_secret();
+    if let Some(cookie_str) = cookie {
+        let token = get_access_token(&cookie_str)?;
+        match decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(jwt_secret.as_ref()),
+            &Validation::default()
+        ) {
+            Ok(token_data) => {
+                let token_data = token_data.claims.user;
+                if token_data.ta {
+                    Option::Some(token_data)
+                } else {
+                    warn!("Is not TA");
+                    None
+                }
+            }
+            Err(err) => {
+                warn!("TA cookie validation failed {:?}", err);
+                None
+            },
+        }
+    } else {
+        warn!("No cookie");
+        None
     }
 }

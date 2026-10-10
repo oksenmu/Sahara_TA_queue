@@ -1,0 +1,326 @@
+/* ==========================================================
+   Outer Sahara
+   ==========================================================
+
+
+
+/* ----------------------------------------------------------
+   Main room container
+   ---------------------------------------------------------- */
+
+#room-layout.sahara-room {
+    --room-width: 760px;
+    --room-height: 540px;
+
+    --table-width: 150px;
+    --table-height: 54px;
+
+    --table-gap: 70px;
+    --row-gap: 80px;
+
+    position: relative;
+
+    /*
+     * Override the generic .section grid.
+     */
+    display: block;
+
+    width: var(--room-width);
+    height: var(--room-height);
+
+    max-width: none;
+
+    padding: 0;
+    margin: 20px auto;
+
+    background: transparent;
+
+    /*
+     * The SVG and tables occupy the same space.
+     */
+    isolation: isolate;
+
+    box-sizing: border-box;
+}
+
+
+/* ----------------------------------------------------------
+   SVG floor plan
+   ---------------------------------------------------------- */
+
+#room-layout .room-plan {
+    position: absolute;
+
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    display: block;
+
+    z-index: 0;
+
+    pointer-events: none;
+}
+
+
+/* Room interior */
+
+#room-layout .room-fill {
+    fill: #ffffff;
+}
+
+
+/* Walls */
+
+#room-layout .room-wall {
+    fill: none;
+
+    stroke: #555555;
+    stroke-width: 4px;
+
+    stroke-linejoin: round;
+    stroke-linecap: square;
+
+    /*
+     * Keeps wall thickness consistent if the SVG is scaled.
+     */
+    vector-effect: non-scaling-stroke;
+}
+
+
+/* ----------------------------------------------------------
+   Windows
+   ---------------------------------------------------------- */
+
+#room-layout .room-window {
+    stroke: #61b9e6;
+    stroke-width: 9px;
+
+    stroke-linecap: round;
+
+    vector-effect: non-scaling-stroke;
+}
+
+
+/* ----------------------------------------------------------
+   Door
+   ---------------------------------------------------------- */
+
+#room-layout .door-leaf {
+    stroke: #555555;
+    stroke-width: 3px;
+
+    vector-effect: non-scaling-stroke;
+}
+
+
+/*
+ * A lighter swing arc makes it obvious which feature
+ * is the entrance without dominating the layout.
+ */
+#room-layout .door-swing {
+    fill: none;
+
+    stroke: #888888;
+    stroke-width: 2px;
+
+    vector-effect: non-scaling-stroke;
+}
+
+
+/* ----------------------------------------------------------
+   Room labels
+   ---------------------------------------------------------- */
+
+#room-layout .room-label {
+    fill: #777777;
+
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    font-size: 14px;
+    font-weight: 700;
+
+    letter-spacing: 1px;
+}
+
+
+#room-layout .entrance-label {
+    font-size: 13px;
+}
+
+
+/* ==========================================================
+   TABLE AREA
+   ==========================================================
+
+   ========================================================== */
+
+#room-layout .table-area {
+    position: absolute;
+
+    /*
+     * The front wall ends at y=130.
+     * Tables begin below it at y=170.
+     */
+    top: 170px;
+
+    left: 45px;
+    right: 45px;
+
+    bottom: 100px;
+
+    z-index: 2;
+
+    display: grid;
+
+    grid-template-columns:
+        minmax(0, 1fr)
+        minmax(0, 1fr);
+
+    column-gap: 70px;
+
+    align-items: start;
+}
+
+
+/* ==========================================================
+   LEFT / RIGHT TABLE COLUMNS
+   ========================================================== */
+
+#room-layout .columns {
+    position: relative;
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+
+    gap: var(--row-gap);
+
+    width: 100%;
+
+    margin: 0;
+    padding: 0;
+
+    z-index: 2;
+}
+
+/* ==========================================================
+   TABLE GROUPS
+   ========================================================== */
+
+#room-layout .row {
+    display: flex;
+    flex-direction: column;
+
+    gap: var(--table-gap);
+
+    margin: 0;
+    padding: 0px;
+}
+
+
+/*
+ * Three tables beside each other.
+ */
+#room-layout .subrow {
+    display: flex;
+
+    flex-direction: row;
+    width: max-content;
+    justify-content: center;
+    align-items: center;
+
+    gap: var(--table-gap);
+
+    margin: 0;
+    padding: 0px;
+}
+
+/* ==========================================================
+   Storage room
+   ========================================================== */
+
+#room-layout .storageroom{
+    padding: 110px;
+}
+
+/* ==========================================================
+   INDIVIDUAL TABLES
+   ========================================================== */
+
+#room-layout .table {
+    /*
+     * Override generic flex sizing from styles.css.
+     *
+     * This makes every table a clearly visible rectangle.
+     */
+    flex:
+        0
+        0
+        var(--table-width);
+
+    width: var(--table-width);
+    height: var(--table-height);
+
+    min-width: var(--table-width);
+    max-width: var(--table-width);
+
+    min-height: var(--table-height);
+    max-height: var(--table-height);
+
+    box-sizing: border-box;
+
+    /*
+     * Almost square corners, but not painfully sharp.
+     */
+    border-radius: 2px;
+
+    /*
+     * Keeps any table number centred.
+     */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    overflow: hidden;
+}
+
+
+.classroom {
+    width: 100%;
+    max-width: none;
+}
+
+
+/*
+ * If the browser is narrower than the floor plan, scroll
+ * horizontally rather than destroying the spatial layout.
+ */
+.tables {
+    overflow-x: auto;
+    overflow-y: visible;
+
+    padding-bottom: 20px;
+}
+
+
+/* ==========================================================
+   SMALLER SCREENS
+   ========================================================== */
+
+@media (max-width: 800px) {
+
+    #room-layout.sahara-room {
+        /*
+         * Preserve the spatial relationship rather than
+         * stacking the two halves of the physical room.
+         */
+        margin-left: auto;
+        margin-right: auto;
+    }
+}

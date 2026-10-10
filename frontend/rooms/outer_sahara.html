@@ -1,0 +1,150 @@
+<section id="room-layout" class="section sahara-room" data-room-name="outer_sahara">
+    <link rel="stylesheet" href="/rooms/outer_sahara.css" />
+
+    <!--
+        Simplified floor plan.
+
+        Top    = windows/front of Sahara
+        Bottom = entrance/back of Sahara
+
+        The SVG is purely decorative and does not affect
+        the positioning of the tables.
+    -->
+    <svg
+        class="room-plan"
+        viewBox="0 0 760 540"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+    >
+        <!-- Room interior -->
+        <path
+            class="room-fill"
+            d="
+                M 40 60
+                L 40 520
+                L 720 520
+                L 720 60
+                z
+            "
+        />
+
+        <!--
+            Walls.
+
+            The bottom wall deliberately stops before and
+            after the entrance, leaving a doorway opening.
+        -->
+        <path
+            class="room-wall"
+            d="
+                M 40 60
+                L 40 520
+                L 720 520
+                L 720 60
+                L 40 60
+            "
+        />
+
+
+        <!-- Door leaf -->
+        <line
+            class="door-leaf"
+            x1="550"
+            y1="460"
+            x2="550"
+            y2="520"
+        />
+
+        <!-- Door swing -->
+        <path
+            class="door-swing"
+            d="
+                M 550 460
+                A 60 60 0 0 1 610 520
+            "
+        />
+
+        <text
+            class="room-label entrance-label"
+            x="580"
+            y="535"
+            text-anchor="middle"
+        >
+            ENTRANCE
+        </text>
+
+        <!-- Door leaf -->
+        <line
+            class="door-leaf"
+            x1="550"
+            y1="0"
+            x2="550"
+            y2="60"
+        />
+
+        <!-- Door swing -->
+        <path
+            class="door-swing"
+            d="
+                M 550 0
+                A 60 60 0 0 1 610 60
+            "
+        />
+
+        <text
+            class="room-label entrance-label"
+            x="580"
+            y="75"
+            text-anchor="middle"
+        >
+            SAHARA
+        </text>
+    </svg>
+
+
+    <!--
+        Actual table layout.
+
+        This is positioned independently from the SVG,
+        so changing the room drawing cannot move the tables.
+    -->
+    <div class="table-area">
+
+        <div class="columns">
+            <!-- Tables 1–2 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="1"
+                        data-table-number="1">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="2"
+                        data-table-number="2">
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Tables 3-4 -->
+            <div class="row">
+                <div class="subrow">
+                    <div
+                        class="table"
+                        id="3"
+                        data-table-number="3">
+                    </div>
+
+                    <div
+                        class="table"
+                        id="4"
+                        data-table-number="4">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
