@@ -776,11 +776,10 @@ where
                     CONTENT_TYPE,
                      HeaderValue::from_static("text/html"),
                 );
-                if let Some(cookie_value) = validate_student_cookie(cookie) {
+                if let Some(cookie_value) = validate_ta_cookie(cookie) {
                     set_jwt_cookie(response, cookie_value).into_response()
                 } else {
-                    let cookie_value = default_user();
-                    set_jwt_cookie(response, cookie_value).into_response()
+                    warp::reply::with_status("", warp::http::StatusCode::FORBIDDEN).into_response()
                 }
             }
         })
