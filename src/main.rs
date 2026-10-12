@@ -1234,7 +1234,7 @@ async fn help_student(
     }
 
     // Reconnect the queue
-    if let Some(next_element) = next{
+    if let Some(next_element) = next && previous.is_some(){
         let next_element = queue_lock.get_mut(&next_element).unwrap();
         next_element.previous = previous;
     }
