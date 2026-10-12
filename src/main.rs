@@ -1511,6 +1511,7 @@ fn build_queue(
         let item = serde_json::json!({
             "index": q_next.queue_index.expect("Index is none"),
             "table_number": q_next.table_number,
+            "helped_by": q_next.helped_by,
             "room": q_next.room,
             "id": q_next.id,
             "task": q_next.task,
